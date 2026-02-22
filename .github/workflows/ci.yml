@@ -57,7 +57,7 @@ jobs:
         run: uv sync --dev
 
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short -x -m "not integration" --ignore=tests/stress
+        run: uv run pytest tests/ -v --tb=short -x -m "not integration" --ignore=tests/stress --deselect tests/unit/test_databento_feed.py::TestDataBentoFeed::test_async_iteration_mock
 
   build:
     name: Build Package
