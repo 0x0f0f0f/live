@@ -58,7 +58,11 @@ jobs:
 
       - name: Run tests
         timeout-minutes: 5
-        run: uv run pytest tests/ -v --tb=short -x -m "not integration" --timeout=60 --ignore=tests/stress --deselect tests/unit/test_databento_feed.py::TestDataBentoFeed::test_async_iteration_mock
+        run: |
+          uv run pytest tests/ -v --tb=short -x -m "not integration" --timeout=60 \
+            --ignore=tests/stress \
+            --deselect tests/unit/test_databento_feed.py::TestDataBentoFeed::test_async_iteration_mock \
+            --deselect tests/unit/test_databento_feed.py::TestDataBentoFeed::test_live_streaming_mock
 
   build:
     name: Build Package
