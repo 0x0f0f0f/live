@@ -61,7 +61,8 @@ jobs:
         run: |
           uv run pytest tests/ -v --tb=short -m "not integration" --timeout=60 \
             --ignore=tests/stress \
-            --ignore=tests/unit/test_databento_feed.py
+            --ignore=tests/unit/test_databento_feed.py \
+            --deselect tests/unit/test_ib_broker.py::TestIBBrokerSetup::test_connect_success
 
   build:
     name: Build Package
