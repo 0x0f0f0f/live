@@ -59,6 +59,7 @@ markers = [
 
 [tool.ruff]
 line-length = 100
+exclude = ["_version.py"]
 target-version = "py311"
 
 [tool.ruff.lint]
