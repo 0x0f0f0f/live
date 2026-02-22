@@ -7,9 +7,10 @@ for strategy consumption. BarBuffer handles the OHLCV aggregation logic.
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, AsyncIterator, Any
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ml4t.live.protocols import DataFeedProtocol
@@ -30,8 +31,8 @@ class BarBuffer:
     """
 
     open: float | None = None
-    high: float = float('-inf')
-    low: float = float('inf')
+    high: float = float("-inf")
+    low: float = float("inf")
     close: float = 0.0
     volume: int = 0
 
@@ -57,18 +58,18 @@ class BarBuffer:
             If no ticks received, uses close price as fallback for OHLC
         """
         return {
-            'open': self.open or self.close,
-            'high': self.high if self.high != float('-inf') else self.close,
-            'low': self.low if self.low != float('inf') else self.close,
-            'close': self.close,
-            'volume': self.volume,
+            "open": self.open or self.close,
+            "high": self.high if self.high != float("-inf") else self.close,
+            "low": self.low if self.low != float("inf") else self.close,
+            "close": self.close,
+            "volume": self.volume,
         }
 
     def reset(self) -> None:
         """Reset for next bar."""
         self.open = None
-        self.high = float('-inf')
-        self.low = float('inf')
+        self.high = float("-inf")
+        self.low = float("inf")
         self.close = 0.0
         self.volume = 0
 
@@ -149,7 +150,7 @@ class BarAggregator:
         self._flush_task = asyncio.create_task(self._flush_checker())
 
         try:
-            async for timestamp, data, context in self.source:
+            async for timestamp, data, _context in self.source:
                 if not self._running:
                     break
 
@@ -172,12 +173,12 @@ class BarAggregator:
                         self._buffers[asset] = BarBuffer()
 
                     # Handle different data formats
-                    if 'close' in ohlcv:
+                    if "close" in ohlcv:
                         # OHLCV bar data
-                        self._buffers[asset].update(ohlcv['close'], ohlcv.get('volume', 0))
-                    elif 'price' in ohlcv:
+                        self._buffers[asset].update(ohlcv["close"], ohlcv.get("volume", 0))
+                    elif "price" in ohlcv:
                         # Tick data
-                        self._buffers[asset].update(ohlcv['price'], ohlcv.get('size', 0))
+                        self._buffers[asset].update(ohlcv["price"], ohlcv.get("size", 0))
         finally:
             if self._flush_task:
                 self._flush_task.cancel()

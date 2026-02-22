@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ml4t.backtest.types import Position
+
 from ml4t.live.brokers.ib import IBBroker
 
 
@@ -352,7 +353,7 @@ class TestOrderSubmission:
     @patch("ml4t.live.brokers.ib.IB")
     async def test_submit_market_order(self, mock_ib_class):
         """Test submitting a market order."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus
+        from ml4t.backtest.types import OrderSide, OrderStatus, OrderType
 
         mock_ib = MagicMock()
         mock_ib.isConnected = MagicMock(return_value=True)
@@ -690,7 +691,7 @@ class TestOrderStatusCallbacks:
 
     def test_on_order_status_filled(self):
         """Test _on_order_status handles filled orders."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 
@@ -728,7 +729,7 @@ class TestOrderStatusCallbacks:
 
     def test_on_order_status_cancelled(self):
         """Test _on_order_status handles cancelled orders."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 
@@ -795,7 +796,7 @@ class TestOrderStatusCallbacks:
 
     def test_on_order_status_partial_fill(self):
         """Test _on_order_status with partial fill (doesn't remove from pending)."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 
@@ -829,7 +830,7 @@ class TestOrderStatusCallbacks:
 
     def test_on_order_status_multiple_orders(self):
         """Test _on_order_status handles multiple orders correctly."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 
@@ -922,7 +923,7 @@ class TestOrderStatusCallbacks:
 
     def test_memory_leak_prevention_filled_orders(self):
         """Test that filled orders schedule cleanup (memory leak prevention)."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 
@@ -960,7 +961,7 @@ class TestOrderStatusCallbacks:
 
     def test_memory_leak_prevention_cancelled_orders(self):
         """Test that cancelled orders cleanup immediately (no memory leak)."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 
@@ -997,7 +998,7 @@ class TestOrderCancellation:
     @pytest.mark.asyncio
     async def test_cancel_order_success(self):
         """Test successful order cancellation."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 
@@ -1083,7 +1084,7 @@ class TestOrderCancellation:
     @pytest.mark.asyncio
     async def test_cancel_multiple_orders(self):
         """Test cancelling specific order when multiple orders exist."""
-        from ml4t.backtest.types import OrderSide, OrderType, OrderStatus, Order
+        from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType
 
         broker = IBBroker()
 

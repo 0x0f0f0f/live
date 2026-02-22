@@ -12,9 +12,7 @@ import asyncio
 import os
 
 import pytest
-
 from ml4t.backtest.types import OrderSide, OrderType
-
 
 # Skip all tests if credentials not set
 pytestmark = pytest.mark.integration
@@ -170,7 +168,7 @@ class TestAlpacaDataFeedIntegration:
             print(f"\nReceived bar at {timestamp}:")
             print(f"  AAPL: {data['AAPL']}")
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Outside market hours, bars won't arrive
             pytest.skip("No bars received - market may be closed")
 
@@ -244,5 +242,5 @@ class TestAlpacaCryptoIntegration:
             print(f"\nReceived crypto bar at {timestamp}:")
             print(f"  BTC/USD: {data['BTC/USD']}")
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.skip("No crypto bars received - check subscription")

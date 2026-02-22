@@ -7,6 +7,7 @@ Critical fix for pytest: Clear util.getLoop() cache before each test to prevent
 """
 
 import asyncio
+
 import pytest
 from ib_async import util
 
@@ -34,7 +35,7 @@ async def ib_broker(request):
     """
     # Clear cached event loop (fixes "Event loop is closed" error)
     # See: https://github.com/ib-api-reloaded/ib_async/issues/186
-    if hasattr(util.getLoop, 'cache_clear'):
+    if hasattr(util.getLoop, "cache_clear"):
         util.getLoop.cache_clear()
 
     # Generate unique client ID from test name

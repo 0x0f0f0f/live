@@ -26,9 +26,10 @@ Example Real-time:
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator, Any
+from typing import Any
 
 from ml4t.live.protocols import DataFeedProtocol
 
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 # DataBento is optional dependency
 try:
     import databento as db  # type: ignore[import-unresolved]
+
     DATABENTO_AVAILABLE = True
 except ImportError:
     DATABENTO_AVAILABLE = False
@@ -81,10 +83,10 @@ class DataBentoFeed(DataFeedProtocol):
 
     def __init__(
         self,
-        client: 'db.Historical | db.Live',
+        client: "db.Historical | db.Live",
         symbols: list[str],
         *,
-        mode: str = 'historical',
+        mode: str = "historical",
         replay_speed: float = 1.0,
     ):
         """Initialize DataBento feed.
@@ -97,9 +99,7 @@ class DataBentoFeed(DataFeedProtocol):
                 1.0 = real-time, 10.0 = 10x speed
         """
         if not DATABENTO_AVAILABLE:
-            raise ImportError(
-                "databento package required. Install with: pip install databento"
-            )
+            raise ImportError("databento package required. Install with: pip install databento")
 
         self.client = client
         self.symbols = symbols
@@ -121,7 +121,7 @@ class DataBentoFeed(DataFeedProtocol):
         symbols: list[str],
         *,
         replay_speed: float = 1.0,
-    ) -> 'DataBentoFeed':
+    ) -> "DataBentoFeed":
         """Create feed from historical .dbn file.
 
         Args:
@@ -141,7 +141,7 @@ class DataBentoFeed(DataFeedProtocol):
         return cls(
             client=store,
             symbols=symbols,
-            mode='historical',
+            mode="historical",
             replay_speed=replay_speed,
         )
 
@@ -152,7 +152,7 @@ class DataBentoFeed(DataFeedProtocol):
         dataset: str,
         schema: str,
         symbols: list[str],
-    ) -> 'DataBentoFeed':
+    ) -> "DataBentoFeed":
         """Create feed for real-time streaming.
 
         Args:
@@ -179,7 +179,7 @@ class DataBentoFeed(DataFeedProtocol):
         return cls(
             client=client,
             symbols=symbols,
-            mode='live',
+            mode="live",
         )
 
     async def start(self) -> None:
@@ -191,10 +191,10 @@ class DataBentoFeed(DataFeedProtocol):
         logger.info(f"DataBentoFeed: Starting {self.mode} feed for {len(self.symbols)} symbols")
         self._running = True
 
-        if self.mode == 'historical':
+        if self.mode == "historical":
             # Start replay task
             self._replay_task = asyncio.create_task(self._replay_historical())
-        elif self.mode == 'live':
+        elif self.mode == "live":
             # Start live streaming task
             self._replay_task = asyncio.create_task(self._stream_live())
 
@@ -270,35 +270,35 @@ class DataBentoFeed(DataFeedProtocol):
         timestamp = datetime.fromtimestamp(record.ts_event / 1e9)  # nanoseconds
 
         # Extract symbol
-        symbol = record.symbol if hasattr(record, 'symbol') else 'UNKNOWN'
+        symbol = record.symbol if hasattr(record, "symbol") else "UNKNOWN"
 
         # Build data dict based on schema
         data = {}
         context = {}
 
-        if hasattr(record, 'open'):  # OHLCV record
+        if hasattr(record, "open"):  # OHLCV record
             data[symbol] = {
-                'open': float(record.open) / 1e9 if record.open else None,
-                'high': float(record.high) / 1e9 if record.high else None,
-                'low': float(record.low) / 1e9 if record.low else None,
-                'close': float(record.close) / 1e9 if record.close else None,
-                'volume': int(record.volume) if record.volume else 0,
+                "open": float(record.open) / 1e9 if record.open else None,
+                "high": float(record.high) / 1e9 if record.high else None,
+                "low": float(record.low) / 1e9 if record.low else None,
+                "close": float(record.close) / 1e9 if record.close else None,
+                "volume": int(record.volume) if record.volume else 0,
             }
-        elif hasattr(record, 'price'):  # Trade record
+        elif hasattr(record, "price"):  # Trade record
             data[symbol] = {
-                'price': float(record.price) / 1e9,
-                'size': int(record.size),
+                "price": float(record.price) / 1e9,
+                "size": int(record.size),
             }
-        elif hasattr(record, 'bid_px_00'):  # MBP record
+        elif hasattr(record, "bid_px_00"):  # MBP record
             data[symbol] = {
-                'price': float(record.bid_px_00) / 1e9,  # Use best bid as price
-                'size': int(record.bid_sz_00),
+                "price": float(record.bid_px_00) / 1e9,  # Use best bid as price
+                "size": int(record.bid_sz_00),
             }
             context[symbol] = {
-                'bid': float(record.bid_px_00) / 1e9,
-                'ask': float(record.ask_px_00) / 1e9,
-                'bid_size': int(record.bid_sz_00),
-                'ask_size': int(record.ask_sz_00),
+                "bid": float(record.bid_px_00) / 1e9,
+                "ask": float(record.ask_px_00) / 1e9,
+                "bid_size": int(record.bid_sz_00),
+                "ask_size": int(record.ask_sz_00),
             }
 
         return timestamp, data, context
@@ -321,9 +321,9 @@ class DataBentoFeed(DataFeedProtocol):
     def stats(self) -> dict[str, Any]:
         """Get feed statistics."""
         return {
-            'running': self._running,
-            'mode': self.mode,
-            'record_count': self._record_count,
-            'symbols': self.symbols,
-            'replay_speed': self.replay_speed,
+            "running": self._running,
+            "mode": self.mode,
+            "record_count": self._record_count,
+            "symbols": self.symbols,
+            "replay_speed": self.replay_speed,
         }

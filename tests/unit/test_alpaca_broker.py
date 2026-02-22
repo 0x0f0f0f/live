@@ -1,12 +1,13 @@
 """Unit tests for AlpacaBroker connection and setup."""
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
 from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
+
 from ml4t.live.brokers.alpaca import AlpacaBroker
 
 
@@ -71,7 +72,7 @@ class MockAlpacaOrder:
         self.filled_avg_price = filled_avg_price
         self.limit_price = limit_price
         self.stop_price = stop_price
-        self.created_at = created_at or datetime.now(timezone.utc)
+        self.created_at = created_at or datetime.now(UTC)
 
 
 class MockTradeUpdate:
@@ -80,7 +81,7 @@ class MockTradeUpdate:
     def __init__(self, event: str, order: MockAlpacaOrder):
         self.event = event
         self.order = order
-        self.timestamp = datetime.now(timezone.utc)
+        self.timestamp = datetime.now(UTC)
 
 
 class TestAlpacaBrokerSetup:
@@ -252,7 +253,7 @@ class TestAlpacaBrokerPositions:
         broker = AlpacaBroker(api_key="PKTEST", secret_key="SECRET")
         broker._positions = {
             "AAPL": Position(
-                asset="AAPL", quantity=100, entry_price=150.0, entry_time=datetime.now(timezone.utc)
+                asset="AAPL", quantity=100, entry_price=150.0, entry_time=datetime.now(UTC)
             ),
         }
 
@@ -284,9 +285,7 @@ class TestAlpacaBrokerPositions:
     def test_get_position_found(self):
         """Test get_position returns position when found."""
         broker = AlpacaBroker(api_key="PKTEST", secret_key="SECRET")
-        pos = Position(
-            asset="AAPL", quantity=100, entry_price=150.0, entry_time=datetime.now(timezone.utc)
-        )
+        pos = Position(asset="AAPL", quantity=100, entry_price=150.0, entry_time=datetime.now(UTC))
         broker._positions = {"AAPL": pos}
 
         result = broker.get_position("AAPL")
@@ -310,7 +309,7 @@ class TestAlpacaBrokerPositions:
         broker = AlpacaBroker(api_key="PKTEST", secret_key="SECRET")
         broker._positions = {
             "AAPL": Position(
-                asset="AAPL", quantity=100, entry_price=150.0, entry_time=datetime.now(timezone.utc)
+                asset="AAPL", quantity=100, entry_price=150.0, entry_time=datetime.now(UTC)
             ),
         }
 
@@ -819,7 +818,7 @@ class TestAlpacaBrokerPositionClose:
                 asset="AAPL",
                 quantity=100,
                 entry_price=150.0,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
             )
         }
 
@@ -850,7 +849,7 @@ class TestAlpacaBrokerPositionClose:
                 asset="AAPL",
                 quantity=-50,  # Short position
                 entry_price=160.0,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
             )
         }
 

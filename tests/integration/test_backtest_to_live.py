@@ -11,17 +11,14 @@ Test scenarios:
 """
 
 import asyncio
-import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from datetime import UTC, datetime, timedelta
 
-from ml4t.backtest import Strategy, OrderSide
-from ml4t.live import LiveEngine, LiveRiskConfig
-from ml4t.live.brokers.ib import IBBroker
+import pytest
+from ml4t.backtest import OrderSide, Strategy
+
+from ml4t.live import LiveRiskConfig
 from ml4t.live.safety import SafeBroker
 from ml4t.live.wrappers import ThreadSafeBrokerWrapper
-from ml4t.live.feeds.aggregator import BarAggregator
-
 
 # =============================================================================
 # STRATEGY DEFINITIONS (Same for backtest and live)
@@ -45,11 +42,11 @@ class MATestStrategy(Strategy):
 
     def on_data(self, timestamp, data, context, broker):
         """Strategy logic - IDENTICAL in backtest and live."""
-        if 'SPY' not in data:
+        if "SPY" not in data:
             return
 
-        bar = data['SPY']
-        close = bar['close']
+        bar = data["SPY"]
+        close = bar["close"]
         self.price_history.append(close)
 
         # Need enough data for MA
@@ -60,11 +57,11 @@ class MATestStrategy(Strategy):
         ma = sum(self.price_history[-self.ma_period :]) / self.ma_period
 
         # Get current position
-        position = broker.get_position('SPY')
+        position = broker.get_position("SPY")
         current_qty = position.quantity if position else 0
 
         # Determine signal
-        signal = 'BUY' if close > ma else 'SELL'
+        signal = "BUY" if close > ma else "SELL"
 
         # Only act if signal changed
         if signal == self.last_signal:
@@ -73,14 +70,14 @@ class MATestStrategy(Strategy):
         self.last_signal = signal
 
         # Execute based on signal
-        if signal == 'BUY':
+        if signal == "BUY":
             if current_qty <= 0:  # Not long, buy
                 qty = 10 if current_qty == 0 else abs(current_qty) + 10
-                broker.submit_order('SPY', qty, side=OrderSide.BUY)
+                broker.submit_order("SPY", qty, side=OrderSide.BUY)
         else:  # SELL signal
             if current_qty >= 0:  # Not short, sell
                 qty = current_qty if current_qty > 0 else 10
-                broker.submit_order('SPY', qty, side=OrderSide.SELL)
+                broker.submit_order("SPY", qty, side=OrderSide.SELL)
 
 
 class SimpleExitStrategy(Strategy):
@@ -99,21 +96,21 @@ class SimpleExitStrategy(Strategy):
 
     def on_data(self, timestamp, data, context, broker):
         """Simple entry and exit logic."""
-        if 'SPY' not in data:
+        if "SPY" not in data:
             return
 
         self.bar_count += 1
-        position = broker.get_position('SPY')
+        position = broker.get_position("SPY")
         current_qty = position.quantity if position else 0
 
         if self.bar_count == 1 and current_qty == 0:
             # Enter on first bar
-            broker.submit_order('SPY', 10, side=OrderSide.BUY)
+            broker.submit_order("SPY", 10, side=OrderSide.BUY)
             self.entered = True
 
         elif self.bar_count == 5 and current_qty > 0:
             # Exit on bar 5
-            broker.submit_order('SPY', current_qty, side=OrderSide.SELL)
+            broker.submit_order("SPY", current_qty, side=OrderSide.SELL)
 
 
 class FlipPositionStrategy(Strategy):
@@ -131,24 +128,24 @@ class FlipPositionStrategy(Strategy):
 
     def on_data(self, timestamp, data, context, broker):
         """Flip position logic."""
-        if 'SPY' not in data:
+        if "SPY" not in data:
             return
 
         self.bar_count += 1
-        position = broker.get_position('SPY')
+        position = broker.get_position("SPY")
         current_qty = position.quantity if position else 0
 
         if self.bar_count == 1 and current_qty == 0:
             # Initial long
-            broker.submit_order('SPY', 10, side=OrderSide.BUY)
+            broker.submit_order("SPY", 10, side=OrderSide.BUY)
 
         elif self.bar_count == 5 and current_qty > 0:
             # Flip to short: sell current + sell 10 more
-            broker.submit_order('SPY', current_qty + 10, side=OrderSide.SELL)
+            broker.submit_order("SPY", current_qty + 10, side=OrderSide.SELL)
 
         elif self.bar_count == 10 and current_qty < 0:
             # Flip to long: buy to cover + buy 10 more
-            broker.submit_order('SPY', abs(current_qty) + 10, side=OrderSide.BUY)
+            broker.submit_order("SPY", abs(current_qty) + 10, side=OrderSide.BUY)
 
 
 # =============================================================================
@@ -191,12 +188,12 @@ class MockBarFeed:
         # Return (timestamp, data, context) tuple matching DataFeedProtocol
         timestamp = bar_data[0]
         data = {
-            'SPY': {
-                'open': bar_data[1],
-                'high': bar_data[2],
-                'low': bar_data[3],
-                'close': bar_data[4],
-                'volume': bar_data[5],
+            "SPY": {
+                "open": bar_data[1],
+                "high": bar_data[2],
+                "low": bar_data[3],
+                "close": bar_data[4],
+                "volume": bar_data[5],
             }
         }
         context = {}
@@ -230,7 +227,9 @@ class MockLiveBroker:
         from ml4t.backtest.types import Position
 
         return {
-            asset: Position(asset=asset, quantity=qty, entry_price=100.0, entry_time=datetime.now(timezone.utc))
+            asset: Position(
+                asset=asset, quantity=qty, entry_price=100.0, entry_time=datetime.now(UTC)
+            )
             for asset, qty in self._positions.items()
         }
 
@@ -243,11 +242,15 @@ class MockLiveBroker:
         from ml4t.backtest.types import Position
 
         return {
-            asset: Position(asset=asset, quantity=qty, entry_price=100.0, entry_time=datetime.now(timezone.utc))
+            asset: Position(
+                asset=asset, quantity=qty, entry_price=100.0, entry_time=datetime.now(UTC)
+            )
             for asset, qty in self._positions.items()
         }
 
-    async def submit_order_async(self, asset, quantity, side, order_type, limit_price=None, stop_price=None, **kwargs):
+    async def submit_order_async(
+        self, asset, quantity, side, order_type, limit_price=None, stop_price=None, **kwargs
+    ):
         from ml4t.backtest.types import Order, OrderStatus
 
         self._order_counter += 1
@@ -258,7 +261,7 @@ class MockLiveBroker:
             order_type=order_type,
             order_id=f"TEST-{self._order_counter}",
             status=OrderStatus.FILLED,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         self._orders.append(order)
 
@@ -285,7 +288,7 @@ class MockLiveBroker:
         qty = self._positions.get(asset, 0)
         if qty == 0:
             return None
-        return Position(asset=asset, quantity=qty, entry_price=100.0, entry_time=datetime.now(timezone.utc))
+        return Position(asset=asset, quantity=qty, entry_price=100.0, entry_time=datetime.now(UTC))
 
     def get_account_value(self):
         """Get total account value."""
@@ -318,7 +321,7 @@ async def test_ma_strategy_no_repeat_signals():
     print("=" * 70 + "\n")
 
     # Generate bars with clear signal
-    base_time = datetime.now(timezone.utc)
+    base_time = datetime.now(UTC)
     bars = [
         # Price below MA(10) = 100 → SELL signal
         (base_time + timedelta(minutes=i), 90, 92, 89, 91, 1000)
@@ -357,7 +360,7 @@ async def test_ma_strategy_no_repeat_signals():
     orders = mock_broker._orders
     print(f"Total bars: {len(bars)}")
     print(f"Total orders: {len(orders)}")
-    print(f"\nOrders submitted:")
+    print("\nOrders submitted:")
     for i, order in enumerate(orders, 1):
         print(f"  {i}. {order.side.name} {order.quantity} {order.asset}")
 
@@ -377,7 +380,7 @@ async def test_simple_exit_strategy():
     print("TEST: Simple Exit Strategy")
     print("=" * 70 + "\n")
 
-    base_time = datetime.now(timezone.utc)
+    base_time = datetime.now(UTC)
     bars = [(base_time + timedelta(minutes=i), 100, 101, 99, 100, 1000) for i in range(10)]
 
     mock_broker = MockLiveBroker()
@@ -412,7 +415,7 @@ async def test_simple_exit_strategy():
     assert orders[1].side == OrderSide.SELL, "Second order is exit"
     assert orders[1].quantity == 10, "Exit quantity matches entry"
 
-    final_position = mock_broker._positions.get('SPY', 0)
+    final_position = mock_broker._positions.get("SPY", 0)
     assert final_position == 0, f"Position should be flat after exit, got {final_position}"
 
     print(f"\n✅ PASS: Clean exit, final position = {final_position}")
@@ -426,7 +429,7 @@ async def test_flip_position_strategy():
     print("TEST: Flip Position Strategy")
     print("=" * 70 + "\n")
 
-    base_time = datetime.now(timezone.utc)
+    base_time = datetime.now(UTC)
     bars = [(base_time + timedelta(minutes=i), 100, 101, 99, 100, 1000) for i in range(15)]
 
     mock_broker = MockLiveBroker()
@@ -466,7 +469,7 @@ async def test_flip_position_strategy():
     assert orders[1].side == OrderSide.SELL and orders[1].quantity == 20
     assert orders[2].side == OrderSide.BUY and orders[2].quantity == 20
 
-    final_position = mock_broker._positions.get('SPY', 0)
+    final_position = mock_broker._positions.get("SPY", 0)
     print(f"\nFinal position: {final_position}")
     assert final_position == 10, "Should be long 10 after flip sequence"
 
@@ -481,7 +484,7 @@ async def test_shadow_mode_prevents_real_orders():
     print("TEST: Shadow Mode - Virtual Position Tracking")
     print("=" * 70 + "\n")
 
-    base_time = datetime.now(timezone.utc)
+    base_time = datetime.now(UTC)
     bars = [(base_time + timedelta(minutes=i), 100, 101, 99, 100, 1000) for i in range(5)]
 
     mock_broker = MockLiveBroker()

@@ -12,10 +12,11 @@ The sync/async split enables strategies to remain simple (no async/await) while
 brokers can use modern async I/O for efficiency.
 """
 
-from typing import Protocol, runtime_checkable, Any, AsyncIterator
+from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import Any, Protocol, runtime_checkable
 
-from ml4t.backtest.types import Order, Position, OrderType, OrderSide
+from ml4t.backtest.types import Order, OrderSide, OrderType, Position
 
 
 @runtime_checkable
@@ -277,7 +278,9 @@ class DataFeedProtocol(Protocol):
         """
         ...
 
-    def __aiter__(self) -> AsyncIterator[tuple[datetime, dict[str, dict[str, Any]], dict[str, Any]]]:
+    def __aiter__(
+        self,
+    ) -> AsyncIterator[tuple[datetime, dict[str, dict[str, Any]], dict[str, Any]]]:
         """Return async iterator.
 
         Yields:

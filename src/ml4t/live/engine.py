@@ -26,8 +26,9 @@ Example:
 import asyncio
 import logging
 import signal
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from ml4t.backtest import Strategy
 
@@ -237,9 +238,7 @@ class LiveEngine:
                 # Windows doesn't support add_signal_handler
                 pass
 
-    def _default_error_handler(
-        self, error: Exception, timestamp: datetime, data: dict
-    ) -> None:
+    def _default_error_handler(self, error: Exception, timestamp: datetime, data: dict) -> None:
         """Default error handler - log and continue.
 
         Args:

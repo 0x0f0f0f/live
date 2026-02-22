@@ -34,8 +34,9 @@ Example Coinbase:
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator, Any
+from typing import Any
 
 from ml4t.live.protocols import DataFeedProtocol
 
@@ -44,10 +45,12 @@ logger = logging.getLogger(__name__)
 # CCXT is optional dependency
 try:
     import ccxt.pro as ccxt
+
     CCXT_AVAILABLE = True
 except ImportError:
     try:
         import ccxt
+
         CCXT_AVAILABLE = True
         logger.warning("ccxt.pro not available, using sync ccxt (slower)")
     except ImportError:
@@ -103,7 +106,7 @@ class CryptoFeed(DataFeedProtocol):
         exchange: str,
         symbols: list[str],
         *,
-        timeframe: str = '1m',
+        timeframe: str = "1m",
         stream_trades: bool = False,
         stream_ohlcv: bool = True,
         api_key: str | None = None,
@@ -123,9 +126,7 @@ class CryptoFeed(DataFeedProtocol):
             api_passphrase: API passphrase (Coinbase only)
         """
         if not CCXT_AVAILABLE:
-            raise ImportError(
-                "ccxt package required. Install with: pip install ccxt[asyncio]"
-            )
+            raise ImportError("ccxt package required. Install with: pip install ccxt[asyncio]")
 
         self.exchange_id = exchange
         self.symbols = symbols
@@ -136,15 +137,15 @@ class CryptoFeed(DataFeedProtocol):
         # Create exchange instance
         exchange_class = getattr(ccxt, exchange)
         config = {
-            'enableRateLimit': True,
+            "enableRateLimit": True,
         }
 
         if api_key:
-            config['apiKey'] = api_key
+            config["apiKey"] = api_key
         if api_secret:
-            config['secret'] = api_secret
+            config["secret"] = api_secret
         if api_passphrase:
-            config['password'] = api_passphrase
+            config["password"] = api_passphrase
 
         self.exchange = exchange_class(config)
 
@@ -163,9 +164,7 @@ class CryptoFeed(DataFeedProtocol):
 
         Initiates WebSocket subscriptions for all symbols.
         """
-        logger.info(
-            f"CryptoFeed: Starting {self.exchange_id} feed for {len(self.symbols)} symbols"
-        )
+        logger.info(f"CryptoFeed: Starting {self.exchange_id} feed for {len(self.symbols)} symbols")
         self._running = True
 
         # Load markets
@@ -208,7 +207,7 @@ class CryptoFeed(DataFeedProtocol):
         """
         try:
             # Check if exchange supports WebSocket trades
-            if hasattr(self.exchange, 'watch_trades'):
+            if hasattr(self.exchange, "watch_trades"):
                 # WebSocket streaming (ccxt.pro)
                 while self._running:
                     trades = await self.exchange.watch_trades(symbol)
@@ -231,7 +230,7 @@ class CryptoFeed(DataFeedProtocol):
         """Stream OHLCV candles for a symbol."""
         try:
             # Check if exchange supports WebSocket OHLCV
-            if hasattr(self.exchange, 'watch_ohlcv'):
+            if hasattr(self.exchange, "watch_ohlcv"):
                 # WebSocket streaming (ccxt.pro)
                 while self._running:
                     candles = await self.exchange.watch_ohlcv(symbol, self.timeframe)
@@ -242,9 +241,7 @@ class CryptoFeed(DataFeedProtocol):
                 # Fallback: Poll REST API
                 last_timestamp = None
                 while self._running:
-                    candles = await self.exchange.fetch_ohlcv(
-                        symbol, self.timeframe, limit=2
-                    )
+                    candles = await self.exchange.fetch_ohlcv(symbol, self.timeframe, limit=2)
                     if candles:
                         latest = candles[-1]
                         # Only emit if new candle
@@ -269,21 +266,21 @@ class CryptoFeed(DataFeedProtocol):
         self._tick_count += 1
 
         # Extract timestamp (milliseconds)
-        timestamp = datetime.fromtimestamp(trade['timestamp'] / 1000)
+        timestamp = datetime.fromtimestamp(trade["timestamp"] / 1000)
 
         # Build data
         data = {
             symbol: {
-                'price': float(trade['price']),
-                'size': float(trade['amount']),
+                "price": float(trade["price"]),
+                "size": float(trade["amount"]),
             }
         }
 
         # Context
         context = {
             symbol: {
-                'side': trade.get('side'),  # 'buy' or 'sell'
-                'trade_id': trade.get('id'),
+                "side": trade.get("side"),  # 'buy' or 'sell'
+                "trade_id": trade.get("id"),
             }
         }
 
@@ -310,19 +307,19 @@ class CryptoFeed(DataFeedProtocol):
         # Build data
         data = {
             symbol: {
-                'open': open_price,
-                'high': high,
-                'low': low,
-                'close': close,
-                'volume': volume,
+                "open": open_price,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": volume,
             }
         }
 
         # Context
         context = {
             symbol: {
-                'timeframe': self.timeframe,
-                'exchange': self.exchange_id,
+                "timeframe": self.timeframe,
+                "exchange": self.exchange_id,
             }
         }
 
@@ -353,11 +350,11 @@ class CryptoFeed(DataFeedProtocol):
     def stats(self) -> dict[str, Any]:
         """Get feed statistics."""
         return {
-            'running': self._running,
-            'exchange': self.exchange_id,
-            'tick_count': self._tick_count,
-            'trade_count': self._trade_count,
-            'candle_count': self._candle_count,
-            'symbols': self.symbols,
-            'timeframe': self.timeframe,
+            "running": self._running,
+            "exchange": self.exchange_id,
+            "tick_count": self._tick_count,
+            "trade_count": self._trade_count,
+            "candle_count": self._candle_count,
+            "symbols": self.symbols,
+            "timeframe": self.timeframe,
         }

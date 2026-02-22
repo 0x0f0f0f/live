@@ -13,16 +13,16 @@ The design addresses several critical safety issues identified in code review:
 - Multiple layers of risk controls
 """
 
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, date
+import json
+import logging
+import os
+import time
+from dataclasses import asdict, dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
-import json
-import os
-import logging
-import time
 
-from ml4t.backtest.types import Order, Position, OrderSide, OrderType, OrderStatus
+from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
 
 from .protocols import AsyncBrokerProtocol
 
@@ -331,7 +331,7 @@ class VirtualPortfolio:
         Returns:
             Dictionary mapping asset symbol to Position
         """
-        return {k: v for k, v in self._positions.items()}
+        return dict(self._positions.items())
 
     @property
     def cash(self) -> float:
@@ -394,8 +394,7 @@ class VirtualPortfolio:
                 current_price=fill_price,
             )
             logger.info(
-                f"Shadow: Opened {asset} {'LONG' if signed_qty > 0 else 'SHORT'} "
-                f"{abs(signed_qty)}"
+                f"Shadow: Opened {asset} {'LONG' if signed_qty > 0 else 'SHORT'} {abs(signed_qty)}"
             )
 
         else:
@@ -692,7 +691,7 @@ class SafeBroker:
                 order_type=order_type,
                 limit_price=limit_price,
                 stop_price=stop_price,
-                order_id=f"SHADOW-{int(time.time()*1000)}",
+                order_id=f"SHADOW-{int(time.time() * 1000)}",
                 status=OrderStatus.FILLED,
                 filled_quantity=quantity,
                 filled_price=price,
@@ -764,8 +763,7 @@ class SafeBroker:
         for t, a, q in self._recent_orders:
             if a == asset and abs(q - quantity) < 0.01:
                 raise RiskLimitError(
-                    f"Duplicate order blocked: {asset} {quantity} "
-                    f"(same order {now - t:.1f}s ago)"
+                    f"Duplicate order blocked: {asset} {quantity} (same order {now - t:.1f}s ago)"
                 )
 
     def _check_rate_limit(self) -> None:

@@ -1,16 +1,16 @@
 """Tests for LiveEngine - async orchestration layer."""
 
 import asyncio
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Any
 
 import pytest
-
 from ml4t.backtest import Strategy
 from ml4t.backtest.types import Order, OrderSide, OrderType, Position
+
 from ml4t.live.engine import LiveEngine
 from ml4t.live.protocols import AsyncBrokerProtocol, DataFeedProtocol
-
 
 # === Mock Implementations ===
 
@@ -119,9 +119,7 @@ class MockAsyncBroker:
             return None
 
         side = OrderSide.SELL if pos.quantity > 0 else OrderSide.BUY
-        return await self.submit_order_async(
-            asset, abs(pos.quantity), side, OrderType.MARKET
-        )
+        return await self.submit_order_async(asset, abs(pos.quantity), side, OrderType.MARKET)
 
 
 # Check protocol compliance
@@ -161,9 +159,9 @@ class MockDataFeed:
 
 
 # Check protocol compliance
-assert isinstance(
-    MockDataFeed([]), DataFeedProtocol
-), "MockDataFeed does not implement DataFeedProtocol"
+assert isinstance(MockDataFeed([]), DataFeedProtocol), (
+    "MockDataFeed does not implement DataFeedProtocol"
+)
 
 
 class TestStrategy(Strategy):

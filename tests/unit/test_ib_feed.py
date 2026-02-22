@@ -80,12 +80,12 @@ class TestIBDataFeed:
     async def test_initialization(self):
         """Test IBDataFeed initialization."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY', 'QQQ'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY", "QQQ"])
 
         assert feed.ib == mock_ib
-        assert feed.symbols == ['SPY', 'QQQ']
-        assert feed.exchange == 'SMART'
-        assert feed.currency == 'USD'
+        assert feed.symbols == ["SPY", "QQQ"]
+        assert feed.exchange == "SMART"
+        assert feed.currency == "USD"
         assert feed.tick_throttle_ms == 100
         assert not feed._running
         assert feed._contracts == {}
@@ -96,33 +96,33 @@ class TestIBDataFeed:
         mock_ib = MockIB()
         feed = IBDataFeed(
             mock_ib,
-            symbols=['SPY'],
-            exchange='NYSE',
-            currency='USD',
+            symbols=["SPY"],
+            exchange="NYSE",
+            currency="USD",
             tick_throttle_ms=500,
         )
 
-        assert feed.exchange == 'NYSE'
+        assert feed.exchange == "NYSE"
         assert feed.tick_throttle_ms == 500
 
     async def test_start_success(self):
         """Test successful feed start."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY', 'QQQ'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY", "QQQ"])
 
         await feed.start()
 
         assert feed._running
         assert len(feed._contracts) == 2
-        assert 'SPY' in feed._contracts
-        assert 'QQQ' in feed._contracts
+        assert "SPY" in feed._contracts
+        assert "QQQ" in feed._contracts
         assert len(feed._tickers) == 2
 
     async def test_start_disconnected(self):
         """Test start fails if IB not connected."""
         mock_ib = MockIB()
         mock_ib.connected = False
-        feed = IBDataFeed(mock_ib, symbols=['SPY'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY"])
 
         with pytest.raises(RuntimeError, match="IB must be connected"):
             await feed.start()
@@ -130,7 +130,7 @@ class TestIBDataFeed:
     async def test_stop(self):
         """Test feed stop."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY"])
 
         await feed.start()
         assert feed._running
@@ -145,12 +145,12 @@ class TestIBDataFeed:
     async def test_tick_emission(self):
         """Test that ticks are emitted to queue."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY"])
 
         await feed.start()
 
         # Create mock ticker with data
-        ticker = MockTicker(Stock('SPY', 'SMART', 'USD'))
+        ticker = MockTicker(Stock("SPY", "SMART", "USD"))
         ticker.last = 450.0
         ticker.lastSize = 100
         ticker.bid = 449.99
@@ -170,22 +170,22 @@ class TestIBDataFeed:
         assert item is not None
 
         timestamp, data, context = item
-        assert 'SPY' in data
-        assert data['SPY']['price'] == 450.0
-        assert data['SPY']['size'] == 100
-        assert context['SPY']['bid'] == 449.99
-        assert context['SPY']['ask'] == 450.01
+        assert "SPY" in data
+        assert data["SPY"]["price"] == 450.0
+        assert data["SPY"]["size"] == 100
+        assert context["SPY"]["bid"] == 449.99
+        assert context["SPY"]["ask"] == 450.01
 
         feed.stop()
 
     async def test_tick_throttling(self):
         """Test tick throttling."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY'], tick_throttle_ms=100)
+        feed = IBDataFeed(mock_ib, symbols=["SPY"], tick_throttle_ms=100)
 
         await feed.start()
 
-        ticker = MockTicker(Stock('SPY', 'SMART', 'USD'))
+        ticker = MockTicker(Stock("SPY", "SMART", "USD"))
         ticker.last = 450.0
         ticker.lastSize = 100
 
@@ -202,7 +202,7 @@ class TestIBDataFeed:
             while True:
                 await asyncio.wait_for(feed._queue.get(), timeout=0.1)
                 queued_count += 1
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         assert queued_count == 1
@@ -213,12 +213,12 @@ class TestIBDataFeed:
     async def test_skip_invalid_ticks(self):
         """Test that ticks with no price are skipped."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY"])
 
         await feed.start()
 
         # Ticker with no price
-        ticker = MockTicker(Stock('SPY', 'SMART', 'USD'))
+        ticker = MockTicker(Stock("SPY", "SMART", "USD"))
         ticker.last = None
 
         mock_ib.pendingTickersEvent.emit([ticker])
@@ -228,7 +228,7 @@ class TestIBDataFeed:
         try:
             await asyncio.wait_for(feed._queue.get(), timeout=0.1)
             assert False, "Should not have queued invalid tick"
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass  # Expected
 
         feed.stop()
@@ -236,15 +236,15 @@ class TestIBDataFeed:
     async def test_multiple_symbols(self):
         """Test feed with multiple symbols."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY', 'QQQ', 'IWM'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY", "QQQ", "IWM"])
 
         await feed.start()
 
         # Create tickers for all symbols
         tickers = [
-            MockTicker(Stock('SPY', 'SMART', 'USD')),
-            MockTicker(Stock('QQQ', 'SMART', 'USD')),
-            MockTicker(Stock('IWM', 'SMART', 'USD')),
+            MockTicker(Stock("SPY", "SMART", "USD")),
+            MockTicker(Stock("QQQ", "SMART", "USD")),
+            MockTicker(Stock("IWM", "SMART", "USD")),
         ]
         for i, ticker in enumerate(tickers):
             ticker.last = 100.0 + i
@@ -259,27 +259,28 @@ class TestIBDataFeed:
         timestamp, data, context = item
 
         assert len(data) == 3
-        assert 'SPY' in data
-        assert 'QQQ' in data
-        assert 'IWM' in data
+        assert "SPY" in data
+        assert "QQQ" in data
+        assert "IWM" in data
 
         feed.stop()
 
     async def test_async_iteration(self):
         """Test async iteration over feed."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY"])
 
         await feed.start()
 
         # Emit a tick
-        ticker = MockTicker(Stock('SPY', 'SMART', 'USD'))
+        ticker = MockTicker(Stock("SPY", "SMART", "USD"))
         ticker.last = 450.0
         ticker.lastSize = 100
         mock_ib.pendingTickersEvent.emit([ticker])
 
         # Iterate
         received = []
+
         async def collect_data():
             async for timestamp, data, context in feed:
                 received.append((timestamp, data, context))
@@ -290,19 +291,19 @@ class TestIBDataFeed:
 
         assert len(received) == 1
         _, data, _ = received[0]
-        assert data['SPY']['price'] == 450.0
+        assert data["SPY"]["price"] == 450.0
 
         feed.stop()
 
     async def test_stats(self):
         """Test feed statistics."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY"])
 
         await feed.start()
 
         # Emit some ticks
-        ticker = MockTicker(Stock('SPY', 'SMART', 'USD'))
+        ticker = MockTicker(Stock("SPY", "SMART", "USD"))
         ticker.last = 450.0
         ticker.lastSize = 100
 
@@ -313,22 +314,22 @@ class TestIBDataFeed:
         await asyncio.sleep(0.2)
 
         stats = feed.stats
-        assert stats['running']
-        assert stats['tick_count'] >= 1
-        assert stats['symbols'] == ['SPY']
+        assert stats["running"]
+        assert stats["tick_count"] >= 1
+        assert stats["symbols"] == ["SPY"]
 
         feed.stop()
 
     async def test_stop_during_iteration(self):
         """Test that stop() terminates iteration cleanly."""
         mock_ib = MockIB()
-        feed = IBDataFeed(mock_ib, symbols=['SPY'])
+        feed = IBDataFeed(mock_ib, symbols=["SPY"])
 
         await feed.start()
 
         # Create background task that emits ticks
         async def emit_ticks():
-            ticker = MockTicker(Stock('SPY', 'SMART', 'USD'))
+            ticker = MockTicker(Stock("SPY", "SMART", "USD"))
             ticker.last = 450.0
             ticker.lastSize = 100
             for _ in range(100):

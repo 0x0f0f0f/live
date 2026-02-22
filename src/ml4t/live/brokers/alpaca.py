@@ -13,11 +13,13 @@ Design (matching IBBroker patterns):
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.stream import TradingStream
+from alpaca.trading.enums import OrderSide as AlpacaOrderSide
+from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
+from alpaca.trading.enums import QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import (
     GetOrdersRequest,
     LimitOrderRequest,
@@ -25,11 +27,9 @@ from alpaca.trading.requests import (
     StopLimitOrderRequest,
     StopOrderRequest,
 )
-from alpaca.trading.enums import OrderSide as AlpacaOrderSide
-from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
-from alpaca.trading.enums import QueryOrderStatus, TimeInForce
-
+from alpaca.trading.stream import TradingStream
 from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
+
 from ml4t.live.protocols import AsyncBrokerProtocol
 
 logger = logging.getLogger(__name__)
@@ -129,9 +129,7 @@ class AlpacaBroker(AsyncBrokerProtocol):
             equity = float(account.equity) if account.equity else 0.0
             cash = float(account.cash) if account.cash else 0.0
             logger.info(
-                f"AlpacaBroker: Account verified - "
-                f"equity=${equity:,.2f}, "
-                f"cash=${cash:,.2f}"
+                f"AlpacaBroker: Account verified - equity=${equity:,.2f}, cash=${cash:,.2f}"
             )
 
             # Create WebSocket stream for order updates
@@ -319,7 +317,7 @@ class AlpacaBroker(AsyncBrokerProtocol):
                 stop_price=stop_price,
                 order_id=order_id,
                 status=self._map_order_status(alpaca_order.status),
-                created_at=alpaca_order.created_at or datetime.now(timezone.utc),
+                created_at=alpaca_order.created_at or datetime.now(UTC),
             )
 
             # Track order
@@ -515,7 +513,7 @@ class AlpacaBroker(AsyncBrokerProtocol):
                 order.filled_quantity = (
                     float(order_data.filled_qty) if order_data.filled_qty else order.quantity
                 )
-                order.filled_at = datetime.now(timezone.utc)
+                order.filled_at = datetime.now(UTC)
 
                 async with self._order_lock:
                     if order_id in self._pending_orders:
@@ -595,7 +593,7 @@ class AlpacaBroker(AsyncBrokerProtocol):
                         asset=symbol,
                         quantity=float(pos.qty),
                         entry_price=float(pos.avg_entry_price),
-                        entry_time=datetime.now(timezone.utc),  # Alpaca doesn't provide entry time
+                        entry_time=datetime.now(UTC),  # Alpaca doesn't provide entry time
                         current_price=float(pos.current_price) if pos.current_price else None,
                     )
 
@@ -645,7 +643,7 @@ class AlpacaBroker(AsyncBrokerProtocol):
                         else None,
                         order_id=order_id,
                         status=self._map_order_status(alpaca_order.status),
-                        created_at=alpaca_order.created_at or datetime.now(timezone.utc),
+                        created_at=alpaca_order.created_at or datetime.now(UTC),
                     )
                     self._alpaca_order_map[str(alpaca_order.id)] = (order_id, time.time())
 

@@ -29,7 +29,7 @@ Example:
 
 import asyncio
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -82,7 +82,7 @@ class OKXFundingFeed(DataFeedProtocol):
         self._client: httpx.AsyncClient | None = None
 
         # Track last emitted timestamp per symbol to avoid duplicates
-        self._last_timestamps: dict[str, datetime | None] = {s: None for s in symbols}
+        self._last_timestamps: dict[str, datetime | None] = dict.fromkeys(symbols)
 
         # Statistics
         self._bar_count = 0

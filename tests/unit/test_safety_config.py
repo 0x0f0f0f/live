@@ -7,13 +7,13 @@ Tests cover:
 - Atomic file operations (save_atomic)
 """
 
-import pytest
 import tempfile
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 from ml4t.live.safety import LiveRiskConfig, RiskState
-
 
 # === LiveRiskConfig Tests ===
 
@@ -148,14 +148,10 @@ def test_live_risk_config_validation_asset_restrictions():
     """Test validation of asset restriction parameters."""
     # Overlap between allowed and blocked assets
     with pytest.raises(ValueError, match="Assets cannot be in both allowed and blocked"):
-        LiveRiskConfig(
-            allowed_assets={"AAPL", "TSLA"}, blocked_assets={"AAPL", "MSFT"}
-        )
+        LiveRiskConfig(allowed_assets={"AAPL", "TSLA"}, blocked_assets={"AAPL", "MSFT"})
 
     # No overlap is OK
-    config = LiveRiskConfig(
-        allowed_assets={"AAPL", "TSLA"}, blocked_assets={"MSFT", "GOOGL"}
-    )
+    config = LiveRiskConfig(allowed_assets={"AAPL", "TSLA"}, blocked_assets={"MSFT", "GOOGL"})
     assert config.allowed_assets == {"AAPL", "TSLA"}
     assert config.blocked_assets == {"MSFT", "GOOGL"}
 

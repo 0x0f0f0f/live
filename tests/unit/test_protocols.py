@@ -4,17 +4,18 @@ Tests verify that protocols are runtime_checkable and that mock implementations
 satisfy the protocol interfaces.
 """
 
-import pytest
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import Any
+
+import pytest
+from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
 
 from ml4t.live.protocols import (
-    BrokerProtocol,
     AsyncBrokerProtocol,
+    BrokerProtocol,
     DataFeedProtocol,
 )
-from ml4t.backtest.types import Order, Position, OrderType, OrderSide, OrderStatus
-
 
 # === Mock Implementations ===
 
@@ -204,17 +205,15 @@ def test_broker_protocol_is_runtime_checkable():
 def test_async_broker_protocol_is_runtime_checkable():
     """Test that AsyncBrokerProtocol is runtime_checkable."""
     broker = MockAsyncBroker()
-    assert isinstance(
-        broker, AsyncBrokerProtocol
-    ), "MockAsyncBroker should satisfy AsyncBrokerProtocol"
+    assert isinstance(broker, AsyncBrokerProtocol), (
+        "MockAsyncBroker should satisfy AsyncBrokerProtocol"
+    )
 
 
 def test_data_feed_protocol_is_runtime_checkable():
     """Test that DataFeedProtocol is runtime_checkable."""
     feed = MockDataFeed([])
-    assert isinstance(
-        feed, DataFeedProtocol
-    ), "MockDataFeed should satisfy DataFeedProtocol"
+    assert isinstance(feed, DataFeedProtocol), "MockDataFeed should satisfy DataFeedProtocol"
 
 
 # === Test Mock Implementations ===
@@ -402,9 +401,7 @@ async def test_mock_data_feed_iteration():
 @pytest.mark.asyncio
 async def test_mock_data_feed_stop():
     """Test stopping a data feed."""
-    feed = MockDataFeed([
-        (datetime.now(), {"AAPL": {"close": 150}}, {})
-    ])
+    feed = MockDataFeed([(datetime.now(), {"AAPL": {"close": 150}}, {})])
     await feed.start()
     assert feed._started
 

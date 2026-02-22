@@ -10,16 +10,17 @@ Runs strategy for extended period to verify no memory leaks from:
 import asyncio
 import gc
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 import psutil
 import pytest
+from ml4t.backtest import OrderSide, Strategy
 
-from ml4t.backtest import Strategy, OrderSide
-from ml4t.live import LiveEngine, LiveRiskConfig
-from ml4t.live.safety import SafeBroker
-from ml4t.live.wrappers import ThreadSafeBrokerWrapper
+from ml4t.live import LiveRiskConfig
 from ml4t.live.feeds.aggregator import BarAggregator
 from ml4t.live.protocols import Tick
+from ml4t.live.safety import SafeBroker
+from ml4t.live.wrappers import ThreadSafeBrokerWrapper
 
 
 class MockAsyncBroker:
@@ -50,7 +51,7 @@ class MockAsyncBroker:
             order_type=order_type,
             order_id=f"STRESS-{self._order_counter}",
             status=OrderStatus.FILLED,  # Immediately filled for stress test
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         self._orders.append(order)
 
@@ -61,7 +62,9 @@ class MockAsyncBroker:
             self._positions[asset].quantity += quantity if side == OrderSide.BUY else -quantity
         else:
             self._positions[asset] = Position(
-                asset=asset, quantity=quantity if side == OrderSide.BUY else -quantity, entry_price=100.0
+                asset=asset,
+                quantity=quantity if side == OrderSide.BUY else -quantity,
+                entry_price=100.0,
             )
 
         return order
@@ -79,7 +82,7 @@ class MockAsyncBroker:
 class MockTickFeed:
     """Mock tick feed that generates infinite ticks."""
 
-    def __init__(self, symbol='SPY', tick_interval=0.1):
+    def __init__(self, symbol="SPY", tick_interval=0.1):
         self._symbol = symbol
         self._tick_interval = tick_interval
         self._running = False
@@ -128,13 +131,13 @@ class RandomSignalStrategy(Strategy):
         self.bar_count += 1
 
         if self.bar_count % 10 == 0:
-            position = broker.get_position('SPY')
+            position = broker.get_position("SPY")
 
             # Toggle position every 10 bars
             if position is None or position.quantity == 0:
-                broker.submit_order('SPY', 10, side=OrderSide.BUY)
+                broker.submit_order("SPY", 10, side=OrderSide.BUY)
             else:
-                broker.submit_order('SPY', position.quantity, side=OrderSide.SELL)
+                broker.submit_order("SPY", position.quantity, side=OrderSide.SELL)
 
 
 def get_memory_mb():
@@ -162,7 +165,7 @@ async def test_memory_leak_detection():
     MAX_MEMORY_GROWTH_MB = 50
 
     print(f"\n{'=' * 70}")
-    print(f"STRESS TEST: Memory Leak Detection")
+    print("STRESS TEST: Memory Leak Detection")
     print(f"Duration: {DURATION_MINUTES} minutes")
     print(f"Sample interval: {SAMPLE_INTERVAL_SECONDS} seconds")
     print(f"Max memory growth: {MAX_MEMORY_GROWTH_MB} MB")
@@ -183,7 +186,7 @@ async def test_memory_leak_detection():
     )
 
     safe_broker = SafeBroker(mock_broker, config)
-    tick_feed = MockTickFeed(symbol='SPY', tick_interval=0.01)  # 100 ticks/sec
+    tick_feed = MockTickFeed(symbol="SPY", tick_interval=0.01)  # 100 ticks/sec
     bar_feed = BarAggregator(tick_feed, bar_size_minutes=1, flush_timeout_seconds=5)
 
     # Measure baseline memory
@@ -207,14 +210,14 @@ async def test_memory_leak_detection():
             bars_processed += 1
 
             # Call strategy
-            timestamp = datetime.fromtimestamp(bar.timestamp, timezone.utc)
+            timestamp = datetime.fromtimestamp(bar.timestamp, UTC)
             data = {
                 bar.symbol: {
-                    'open': bar.open,
-                    'high': bar.high,
-                    'low': bar.low,
-                    'close': bar.close,
-                    'volume': bar.volume,
+                    "open": bar.open,
+                    "high": bar.high,
+                    "low": bar.low,
+                    "close": bar.close,
+                    "volume": bar.volume,
                 }
             }
 
@@ -280,7 +283,7 @@ async def test_memory_leak_detection():
         max_growth = max(growths)
         min_growth = min(growths)
 
-        print(f"\nMemory growth stats:")
+        print("\nMemory growth stats:")
         print(f"  Average: {avg_growth:+.2f} MB")
         print(f"  Max: {max_growth:+.2f} MB")
         print(f"  Min: {min_growth:+.2f} MB")
@@ -291,12 +294,14 @@ async def test_memory_leak_detection():
     print(f"{'=' * 70}")
 
     if final_growth > MAX_MEMORY_GROWTH_MB:
-        print(f"❌ FAIL: Memory growth ({final_growth:.2f} MB) exceeds limit ({MAX_MEMORY_GROWTH_MB} MB)")
-        print(f"   Potential memory leak detected!")
+        print(
+            f"❌ FAIL: Memory growth ({final_growth:.2f} MB) exceeds limit ({MAX_MEMORY_GROWTH_MB} MB)"
+        )
+        print("   Potential memory leak detected!")
         pytest.fail(f"Memory leak detected: {final_growth:.2f} MB growth")
     else:
         print(f"✅ PASS: Memory growth ({final_growth:.2f} MB) within acceptable range")
-        print(f"   No memory leak detected")
+        print("   No memory leak detected")
 
     print(f"\n{'=' * 70}")
     print("STRESS TEST COMPLETE")
@@ -331,7 +336,7 @@ async def test_prune_history_effectiveness():
     print(f"Submitting {NUM_ORDERS} orders...")
     for i in range(NUM_ORDERS):
         await safe_broker.submit_order_async(
-            asset='SPY', quantity=1, side=OrderSide.BUY, order_type='MARKET'
+            asset="SPY", quantity=1, side=OrderSide.BUY, order_type="MARKET"
         )
 
     initial_history_size = len(safe_broker._order_history)
@@ -344,7 +349,9 @@ async def test_prune_history_effectiveness():
     await asyncio.sleep(4)  # Wait longer than prune_hours
 
     # Trigger prune by submitting another order
-    await safe_broker.submit_order_async(asset='SPY', quantity=1, side=OrderSide.BUY, order_type='MARKET')
+    await safe_broker.submit_order_async(
+        asset="SPY", quantity=1, side=OrderSide.BUY, order_type="MARKET"
+    )
 
     final_history_size = len(safe_broker._order_history)
     print(f"Final history size: {final_history_size}")

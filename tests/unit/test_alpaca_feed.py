@@ -1,9 +1,10 @@
 """Unit tests for AlpacaDataFeed."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from ml4t.live.feeds.alpaca_feed import AlpacaDataFeed
 
 
@@ -28,7 +29,7 @@ class MockAlpacaBar:
         self.low = low
         self.close = close
         self.volume = volume
-        self.timestamp = timestamp or datetime.now(timezone.utc)
+        self.timestamp = timestamp or datetime.now(UTC)
         self.vwap = vwap
         self.trade_count = trade_count
 
@@ -50,7 +51,7 @@ class MockAlpacaQuote:
         self.ask_price = ask_price
         self.bid_size = bid_size
         self.ask_size = ask_size
-        self.timestamp = timestamp or datetime.now(timezone.utc)
+        self.timestamp = timestamp or datetime.now(UTC)
 
 
 class MockAlpacaTrade:
@@ -70,7 +71,7 @@ class MockAlpacaTrade:
         self.size = size
         self.exchange = exchange
         self.conditions = conditions or ["@"]
-        self.timestamp = timestamp or datetime.now(timezone.utc)
+        self.timestamp = timestamp or datetime.now(UTC)
 
 
 class MockCryptoTrade:
@@ -88,7 +89,7 @@ class MockCryptoTrade:
         self.price = price
         self.size = size
         self.taker_side = taker_side
-        self.timestamp = timestamp or datetime.now(timezone.utc)
+        self.timestamp = timestamp or datetime.now(UTC)
 
 
 class TestAlpacaDataFeedSetup:
@@ -512,7 +513,7 @@ class TestAlpacaDataFeedIteration:
         feed._running = True
 
         # Queue some data
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         data = {"AAPL": {"close": 150.0}}
         context = {}
         feed._queue.put_nowait((timestamp, data, context))
@@ -538,7 +539,7 @@ class TestAlpacaDataFeedIteration:
         )
         feed._running = True
 
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
         data = {"AAPL": {"close": 150.0}}
         context = {}
         feed._queue.put_nowait((timestamp, data, context))

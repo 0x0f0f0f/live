@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 import pytest
+
 from ml4t.live.feeds.aggregator import BarAggregator
 
 
@@ -85,7 +86,7 @@ class TestBarAggregator:
         """Test aggregation of single tick for single asset."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {'AAPL': {'price': 150.0, 'size': 100}}, {}),
+            (base_time, {"AAPL": {"price": 150.0, "size": 100}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -98,7 +99,7 @@ class TestBarAggregator:
             async with asyncio.timeout(0.5):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -110,9 +111,9 @@ class TestBarAggregator:
         """Test bar emission when crossing minute boundary."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {'AAPL': {'price': 150.0, 'size': 100}}, {}),
-            (base_time + timedelta(seconds=30), {'AAPL': {'price': 151.0, 'size': 50}}, {}),
-            (base_time + timedelta(minutes=1), {'AAPL': {'price': 152.0, 'size': 75}}, {}),
+            (base_time, {"AAPL": {"price": 150.0, "size": 100}}, {}),
+            (base_time + timedelta(seconds=30), {"AAPL": {"price": 151.0, "size": 50}}, {}),
+            (base_time + timedelta(minutes=1), {"AAPL": {"price": 152.0, "size": 75}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -124,7 +125,7 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -133,22 +134,23 @@ class TestBarAggregator:
         assert len(bars) == 1
         timestamp, data, context = bars[0]
         assert timestamp == datetime(2024, 1, 1, 10, 0, 0)
-        assert 'AAPL' in data
-        assert data['AAPL']['open'] == 150.0
-        assert data['AAPL']['high'] == 151.0
-        assert data['AAPL']['low'] == 150.0
-        assert data['AAPL']['close'] == 151.0
-        assert data['AAPL']['volume'] == 150
+        assert "AAPL" in data
+        assert data["AAPL"]["open"] == 150.0
+        assert data["AAPL"]["high"] == 151.0
+        assert data["AAPL"]["low"] == 150.0
+        assert data["AAPL"]["close"] == 151.0
+        assert data["AAPL"]["volume"] == 150
 
     async def test_multiple_assets(self):
         """Test aggregation of multiple assets."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {
-                'AAPL': {'price': 150.0, 'size': 100},
-                'GOOGL': {'price': 2800.0, 'size': 50}
-            }, {}),
-            (base_time + timedelta(minutes=1), {'AAPL': {'price': 151.0, 'size': 75}}, {}),
+            (
+                base_time,
+                {"AAPL": {"price": 150.0, "size": 100}, "GOOGL": {"price": 2800.0, "size": 50}},
+                {},
+            ),
+            (base_time + timedelta(minutes=1), {"AAPL": {"price": 151.0, "size": 75}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -160,26 +162,36 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
 
         assert len(bars) == 1
         timestamp, data, context = bars[0]
-        assert 'AAPL' in data
-        assert 'GOOGL' in data
-        assert data['AAPL']['open'] == 150.0
-        assert data['GOOGL']['open'] == 2800.0
+        assert "AAPL" in data
+        assert "GOOGL" in data
+        assert data["AAPL"]["open"] == 150.0
+        assert data["GOOGL"]["open"] == 2800.0
 
     async def test_ohlcv_bar_input(self):
         """Test handling OHLCV bar input (not just ticks)."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {
-                'AAPL': {'open': 149.0, 'high': 151.0, 'low': 148.0, 'close': 150.0, 'volume': 1000}
-            }, {}),
-            (base_time + timedelta(minutes=1), {'AAPL': {'close': 152.0, 'volume': 500}}, {}),
+            (
+                base_time,
+                {
+                    "AAPL": {
+                        "open": 149.0,
+                        "high": 151.0,
+                        "low": 148.0,
+                        "close": 150.0,
+                        "volume": 1000,
+                    }
+                },
+                {},
+            ),
+            (base_time + timedelta(minutes=1), {"AAPL": {"close": 152.0, "volume": 500}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -191,7 +203,7 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -199,17 +211,17 @@ class TestBarAggregator:
         assert len(bars) == 1
         timestamp, data, context = bars[0]
         # Should aggregate based on 'close' field
-        assert data['AAPL']['close'] == 150.0
-        assert data['AAPL']['volume'] == 1000
+        assert data["AAPL"]["close"] == 150.0
+        assert data["AAPL"]["volume"] == 1000
 
     async def test_multiple_bars(self):
         """Test emission of multiple consecutive bars."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {'AAPL': {'price': 150.0, 'size': 100}}, {}),
-            (base_time + timedelta(minutes=1), {'AAPL': {'price': 151.0, 'size': 50}}, {}),
-            (base_time + timedelta(minutes=2), {'AAPL': {'price': 152.0, 'size': 75}}, {}),
-            (base_time + timedelta(minutes=3), {'AAPL': {'price': 153.0, 'size': 25}}, {}),
+            (base_time, {"AAPL": {"price": 150.0, "size": 100}}, {}),
+            (base_time + timedelta(minutes=1), {"AAPL": {"price": 151.0, "size": 50}}, {}),
+            (base_time + timedelta(minutes=2), {"AAPL": {"price": 152.0, "size": 75}}, {}),
+            (base_time + timedelta(minutes=3), {"AAPL": {"price": 153.0, "size": 25}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -221,7 +233,7 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -236,10 +248,10 @@ class TestBarAggregator:
         """Test that buffers are reset between bars."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {'AAPL': {'price': 150.0, 'size': 100}}, {}),
-            (base_time + timedelta(seconds=30), {'AAPL': {'price': 155.0, 'size': 50}}, {}),
-            (base_time + timedelta(minutes=1), {'AAPL': {'price': 145.0, 'size': 75}}, {}),
-            (base_time + timedelta(minutes=2), {'AAPL': {'price': 148.0, 'size': 25}}, {}),
+            (base_time, {"AAPL": {"price": 150.0, "size": 100}}, {}),
+            (base_time + timedelta(seconds=30), {"AAPL": {"price": 155.0, "size": 50}}, {}),
+            (base_time + timedelta(minutes=1), {"AAPL": {"price": 145.0, "size": 75}}, {}),
+            (base_time + timedelta(minutes=2), {"AAPL": {"price": 148.0, "size": 25}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -251,7 +263,7 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -259,22 +271,22 @@ class TestBarAggregator:
         assert len(bars) == 2
 
         # First bar (10:00): high should be 155, low 150
-        assert bars[0][1]['AAPL']['high'] == 155.0
-        assert bars[0][1]['AAPL']['low'] == 150.0
+        assert bars[0][1]["AAPL"]["high"] == 155.0
+        assert bars[0][1]["AAPL"]["low"] == 150.0
 
         # Second bar (10:01): should be independent, not carry over previous high
-        assert bars[1][1]['AAPL']['open'] == 145.0
-        assert bars[1][1]['AAPL']['high'] == 145.0  # Only one tick
-        assert bars[1][1]['AAPL']['low'] == 145.0
+        assert bars[1][1]["AAPL"]["open"] == 145.0
+        assert bars[1][1]["AAPL"]["high"] == 145.0  # Only one tick
+        assert bars[1][1]["AAPL"]["low"] == 145.0
 
     async def test_5minute_bars(self):
         """Test 5-minute bar aggregation."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {'AAPL': {'price': 150.0, 'size': 100}}, {}),
-            (base_time + timedelta(minutes=2), {'AAPL': {'price': 151.0, 'size': 50}}, {}),
-            (base_time + timedelta(minutes=4), {'AAPL': {'price': 152.0, 'size': 75}}, {}),
-            (base_time + timedelta(minutes=5), {'AAPL': {'price': 153.0, 'size': 25}}, {}),
+            (base_time, {"AAPL": {"price": 150.0, "size": 100}}, {}),
+            (base_time + timedelta(minutes=2), {"AAPL": {"price": 151.0, "size": 50}}, {}),
+            (base_time + timedelta(minutes=4), {"AAPL": {"price": 152.0, "size": 75}}, {}),
+            (base_time + timedelta(minutes=5), {"AAPL": {"price": 153.0, "size": 25}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed, bar_size_minutes=5)
@@ -286,7 +298,7 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -295,18 +307,20 @@ class TestBarAggregator:
         assert len(bars) == 1
         timestamp, data, context = bars[0]
         assert timestamp == datetime(2024, 1, 1, 10, 0, 0)
-        assert data['AAPL']['open'] == 150.0
-        assert data['AAPL']['high'] == 152.0
-        assert data['AAPL']['low'] == 150.0
-        assert data['AAPL']['close'] == 152.0
-        assert data['AAPL']['volume'] == 225
+        assert data["AAPL"]["open"] == 150.0
+        assert data["AAPL"]["high"] == 152.0
+        assert data["AAPL"]["low"] == 150.0
+        assert data["AAPL"]["close"] == 152.0
+        assert data["AAPL"]["volume"] == 225
 
     async def test_stop_signal(self):
         """Test that stop() terminates iteration."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         # Infinite data source
-        mock_data = [(base_time + timedelta(seconds=i), {'AAPL': {'price': 150.0, 'size': 10}}, {})
-                     for i in range(1000)]
+        mock_data = [
+            (base_time + timedelta(seconds=i), {"AAPL": {"price": 150.0, "size": 10}}, {})
+            for i in range(1000)
+        ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
 
@@ -337,7 +351,7 @@ class TestBarAggregator:
             async with asyncio.timeout(0.5):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -348,12 +362,16 @@ class TestBarAggregator:
         """Test asset appearing mid-stream (not in first tick)."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {'AAPL': {'price': 150.0, 'size': 100}}, {}),
-            (base_time + timedelta(seconds=30), {
-                'AAPL': {'price': 151.0, 'size': 50},
-                'GOOGL': {'price': 2800.0, 'size': 25}  # New asset
-            }, {}),
-            (base_time + timedelta(minutes=1), {'AAPL': {'price': 152.0, 'size': 75}}, {}),
+            (base_time, {"AAPL": {"price": 150.0, "size": 100}}, {}),
+            (
+                base_time + timedelta(seconds=30),
+                {
+                    "AAPL": {"price": 151.0, "size": 50},
+                    "GOOGL": {"price": 2800.0, "size": 25},  # New asset
+                },
+                {},
+            ),
+            (base_time + timedelta(minutes=1), {"AAPL": {"price": 152.0, "size": 75}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -365,24 +383,24 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
 
         assert len(bars) == 1
         timestamp, data, context = bars[0]
-        assert 'AAPL' in data
-        assert 'GOOGL' in data
-        assert data['GOOGL']['open'] == 2800.0
+        assert "AAPL" in data
+        assert "GOOGL" in data
+        assert data["GOOGL"]["open"] == 2800.0
 
     async def test_no_data_for_asset_in_bar(self):
         """Test that assets with no data in a bar are not included."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
         mock_data = [
-            (base_time, {'AAPL': {'price': 150.0, 'size': 100}}, {}),
-            (base_time + timedelta(minutes=1), {'GOOGL': {'price': 2800.0, 'size': 50}}, {}),
-            (base_time + timedelta(minutes=2), {'AAPL': {'price': 151.0, 'size': 75}}, {}),
+            (base_time, {"AAPL": {"price": 150.0, "size": 100}}, {}),
+            (base_time + timedelta(minutes=1), {"GOOGL": {"price": 2800.0, "size": 50}}, {}),
+            (base_time + timedelta(minutes=2), {"AAPL": {"price": 151.0, "size": 75}}, {}),
         ]
         mock_feed = MockDataFeed(mock_data)
         aggregator = BarAggregator(mock_feed)
@@ -394,7 +412,7 @@ class TestBarAggregator:
             async with asyncio.timeout(1.0):
                 async for timestamp, data, context in aggregator:
                     bars.append((timestamp, data, context))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         aggregator.stop()
@@ -402,8 +420,8 @@ class TestBarAggregator:
         # Should have 2 bars
         assert len(bars) == 2
         # First bar only has AAPL
-        assert 'AAPL' in bars[0][1]
-        assert 'GOOGL' not in bars[0][1]
+        assert "AAPL" in bars[0][1]
+        assert "GOOGL" not in bars[0][1]
         # Second bar only has GOOGL
-        assert 'GOOGL' in bars[1][1]
-        assert 'AAPL' not in bars[1][1]
+        assert "GOOGL" in bars[1][1]
+        assert "AAPL" not in bars[1][1]

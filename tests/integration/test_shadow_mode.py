@@ -13,14 +13,14 @@ Requirements:
 - Paper trading account
 """
 
-import pytest
 import asyncio
 from datetime import datetime
+
+import pytest
 from ml4t.backtest.types import OrderSide
 
-from ml4t.live.safety import SafeBroker, LiveRiskConfig
 from ml4t.live.feeds.aggregator import BarAggregator
-
+from ml4t.live.safety import LiveRiskConfig, SafeBroker
 
 # Mark all tests in this file as integration tests
 pytestmark = pytest.mark.integration
@@ -233,7 +233,7 @@ async def test_shadow_mode_with_aggregator(ib_broker):
 
             # First minute: 3 ticks
             for i in range(3):
-                timestamp = base_time.replace(second=i*20)
+                timestamp = base_time.replace(second=i * 20)
                 data = {
                     "SPY": {
                         "price": base_price + i * 0.01,
@@ -247,7 +247,7 @@ async def test_shadow_mode_with_aggregator(ib_broker):
             # Second minute: 3 ticks (first tick will emit bar 1)
             second_minute = base_time.replace(minute=base_time.minute + 1)
             for i in range(3):
-                timestamp = second_minute.replace(second=i*20)
+                timestamp = second_minute.replace(second=i * 20)
                 data = {
                     "SPY": {
                         "price": base_price + 1.0 + i * 0.01,

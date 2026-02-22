@@ -10,9 +10,9 @@ Tests cover all position transitions:
 - Account value calculation
 """
 
+from ml4t.backtest.types import Order, OrderSide, OrderStatus
 
 from ml4t.live.safety import VirtualPortfolio
-from ml4t.backtest.types import Order, OrderSide, OrderStatus
 
 
 def create_order(

@@ -22,8 +22,9 @@ Example:
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator, Any
+from typing import Any
 
 from ib_async import IB, Stock, Ticker
 
@@ -64,8 +65,8 @@ class IBDataFeed(DataFeedProtocol):
         ib: IB,
         symbols: list[str],
         *,
-        exchange: str = 'SMART',
-        currency: str = 'USD',
+        exchange: str = "SMART",
+        currency: str = "USD",
         tick_throttle_ms: int = 100,  # Min time between emits
     ):
         """Initialize IB data feed.
@@ -121,7 +122,7 @@ class IBDataFeed(DataFeedProtocol):
                 continue
 
             # Request market data
-            ticker = self.ib.reqMktData(contract, '', False, False)
+            ticker = self.ib.reqMktData(contract, "", False, False)
             self._tickers[symbol] = ticker
 
         # Register callback for ticker updates
@@ -151,8 +152,7 @@ class IBDataFeed(DataFeedProtocol):
         self._queue.put_nowait(None)
 
         logger.info(
-            f"IBDataFeed: Stopped. "
-            f"Ticks: {self._tick_count}, Throttled: {self._throttled_count}"
+            f"IBDataFeed: Stopped. Ticks: {self._tick_count}, Throttled: {self._throttled_count}"
         )
 
     def _on_pending_tickers(self, tickers: list[Ticker]) -> None:
@@ -192,17 +192,17 @@ class IBDataFeed(DataFeedProtocol):
 
             # Core data (price, size)
             data[symbol] = {
-                'price': float(ticker.last),
-                'size': int(ticker.lastSize) if ticker.lastSize else 0,
+                "price": float(ticker.last),
+                "size": int(ticker.lastSize) if ticker.lastSize else 0,
             }
 
             # Extended context (bid, ask, volume)
             context[symbol] = {
-                'bid': float(ticker.bid) if ticker.bid else None,
-                'ask': float(ticker.ask) if ticker.ask else None,
-                'bid_size': int(ticker.bidSize) if ticker.bidSize else 0,
-                'ask_size': int(ticker.askSize) if ticker.askSize else 0,
-                'volume': int(ticker.volume) if ticker.volume else 0,
+                "bid": float(ticker.bid) if ticker.bid else None,
+                "ask": float(ticker.ask) if ticker.ask else None,
+                "bid_size": int(ticker.bidSize) if ticker.bidSize else 0,
+                "ask_size": int(ticker.askSize) if ticker.askSize else 0,
+                "volume": int(ticker.volume) if ticker.volume else 0,
             }
 
         # Emit only if we have data
@@ -243,8 +243,8 @@ class IBDataFeed(DataFeedProtocol):
             - symbols: list[str] - Subscribed symbols
         """
         return {
-            'running': self._running,
-            'tick_count': self._tick_count,
-            'throttled_count': self._throttled_count,
-            'symbols': self.symbols,
+            "running": self._running,
+            "tick_count": self._tick_count,
+            "throttled_count": self._throttled_count,
+            "symbols": self.symbols,
         }

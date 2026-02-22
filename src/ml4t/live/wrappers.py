@@ -14,8 +14,9 @@ import asyncio
 import logging
 from typing import Any
 
+from ml4t.backtest.types import Order, OrderSide, OrderType, Position
+
 from ml4t.live.protocols import AsyncBrokerProtocol
-from ml4t.backtest.types import Order, Position, OrderType, OrderSide
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +50,7 @@ class ThreadSafeBrokerWrapper:
         It provides a sync interface backed by async operations.
     """
 
-    def __init__(
-        self, async_broker: AsyncBrokerProtocol, loop: asyncio.AbstractEventLoop
-    ):
+    def __init__(self, async_broker: AsyncBrokerProtocol, loop: asyncio.AbstractEventLoop):
         """Initialize thread-safe wrapper.
 
         Args:
@@ -227,12 +226,8 @@ class ThreadSafeBrokerWrapper:
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)
             return future.result(timeout=timeout)
         except TimeoutError:
-            logger.error(
-                f"ThreadSafeBrokerWrapper: Operation timed out after {timeout}s"
-            )
+            logger.error(f"ThreadSafeBrokerWrapper: Operation timed out after {timeout}s")
             raise
         except Exception as e:
-            logger.error(
-                f"ThreadSafeBrokerWrapper: Error running coroutine: {e}", exc_info=True
-            )
+            logger.error(f"ThreadSafeBrokerWrapper: Error running coroutine: {e}", exc_info=True)
             raise RuntimeError(f"Broker operation failed: {e}") from e

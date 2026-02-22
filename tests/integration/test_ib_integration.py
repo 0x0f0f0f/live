@@ -17,8 +17,8 @@ import asyncio
 from datetime import datetime
 
 import pytest
-
 from ml4t.backtest.types import Position
+
 from ml4t.live.brokers.ib import IBBroker
 
 
@@ -26,9 +26,9 @@ from ml4t.live.brokers.ib import IBBroker
 def ib_config():
     """IB connection configuration for paper trading."""
     return {
-        'host': '127.0.0.1',
-        'port': 7497,  # Paper trading
-        'client_id': 999,  # High ID to avoid conflicts
+        "host": "127.0.0.1",
+        "port": 7497,  # Paper trading
+        "client_id": 999,  # High ID to avoid conflicts
     }
 
 
@@ -204,6 +204,7 @@ async def test_position_callback(ib_broker):
         This test simulates a position update by creating a mock IB position object.
         Real position updates would come from IB events during trading.
     """
+
     # Create a mock IB position object
     class MockContract:
         def __init__(self, symbol):
@@ -245,10 +246,7 @@ async def test_concurrent_position_access(ib_broker):
     await ib_broker._sync_positions()
 
     # Launch multiple concurrent position reads
-    tasks = [
-        ib_broker.get_positions_async()
-        for _ in range(10)
-    ]
+    tasks = [ib_broker.get_positions_async() for _ in range(10)]
 
     results = await asyncio.gather(*tasks)
 
@@ -291,6 +289,6 @@ async def test_ib_reconnection(ib_config):
     await broker.disconnect()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """Run integration tests if IB is available."""
-    pytest.main([__file__, '-v', '--tb=short'])
+    pytest.main([__file__, "-v", "--tb=short"])

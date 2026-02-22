@@ -19,8 +19,8 @@ from typing import Any
 
 from ib_async import IB, Contract, LimitOrder, MarketOrder, Stock, StopLimitOrder, StopOrder
 from ib_async import Trade as IBTrade
-
 from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
+
 from ml4t.live.protocols import AsyncBrokerProtocol
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,7 @@ class IBBroker(AsyncBrokerProtocol):
                 ),
                 timeout=20,  # Outer timeout wrapper
             )
-        except (asyncio.TimeoutError, ConnectionRefusedError) as e:
+        except (TimeoutError, ConnectionRefusedError) as e:
             logger.error(f"IBBroker: Connection failed: {e}")
             raise
         except Exception:

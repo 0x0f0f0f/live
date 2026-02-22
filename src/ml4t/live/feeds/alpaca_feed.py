@@ -23,8 +23,9 @@ Example:
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
 from alpaca.data.enums import DataFeed
 from alpaca.data.live import CryptoDataStream, StockDataStream
@@ -229,7 +230,7 @@ class AlpacaDataFeed(DataFeedProtocol):
         self._bar_count += 1
         symbol = bar.symbol.upper()
 
-        timestamp = bar.timestamp if hasattr(bar, "timestamp") else datetime.now(timezone.utc)
+        timestamp = bar.timestamp if hasattr(bar, "timestamp") else datetime.now(UTC)
         data = {
             symbol: {
                 "open": float(bar.open),
@@ -262,7 +263,7 @@ class AlpacaDataFeed(DataFeedProtocol):
         self._quote_count += 1
         symbol = quote.symbol.upper()
 
-        timestamp = quote.timestamp if hasattr(quote, "timestamp") else datetime.now(timezone.utc)
+        timestamp = quote.timestamp if hasattr(quote, "timestamp") else datetime.now(UTC)
 
         # Calculate mid price
         bid = float(quote.bid_price) if quote.bid_price else 0.0
@@ -297,7 +298,7 @@ class AlpacaDataFeed(DataFeedProtocol):
         self._trade_count += 1
         symbol = trade.symbol.upper()
 
-        timestamp = trade.timestamp if hasattr(trade, "timestamp") else datetime.now(timezone.utc)
+        timestamp = trade.timestamp if hasattr(trade, "timestamp") else datetime.now(UTC)
         data = {
             symbol: {
                 "price": float(trade.price),
@@ -327,7 +328,7 @@ class AlpacaDataFeed(DataFeedProtocol):
         self._bar_count += 1
         symbol = bar.symbol.upper()
 
-        timestamp = bar.timestamp if hasattr(bar, "timestamp") else datetime.now(timezone.utc)
+        timestamp = bar.timestamp if hasattr(bar, "timestamp") else datetime.now(UTC)
         data = {
             symbol: {
                 "open": float(bar.open),
@@ -360,7 +361,7 @@ class AlpacaDataFeed(DataFeedProtocol):
         self._quote_count += 1
         symbol = quote.symbol.upper()
 
-        timestamp = quote.timestamp if hasattr(quote, "timestamp") else datetime.now(timezone.utc)
+        timestamp = quote.timestamp if hasattr(quote, "timestamp") else datetime.now(UTC)
 
         bid = float(quote.bid_price) if quote.bid_price else 0.0
         ask = float(quote.ask_price) if quote.ask_price else 0.0
@@ -394,7 +395,7 @@ class AlpacaDataFeed(DataFeedProtocol):
         self._trade_count += 1
         symbol = trade.symbol.upper()
 
-        timestamp = trade.timestamp if hasattr(trade, "timestamp") else datetime.now(timezone.utc)
+        timestamp = trade.timestamp if hasattr(trade, "timestamp") else datetime.now(UTC)
         data = {
             symbol: {
                 "price": float(trade.price),
