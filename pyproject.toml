@@ -87,3 +87,7 @@ root = ["src"]
 [tool.ty.src]
 include = ["src"]
 exclude = ["tests"]
+
+[tool.ty.rules]
+unresolved-attribute = "ignore"  # Polars type stubs
+unused-type-ignore-comment = "ignore"
