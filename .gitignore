@@ -38,3 +38,4 @@ src/ml4t/live/_version.py
 # Claude Code (local development only)
 CLAUDE.md
 .claude/
+.ml4t_risk_state.json
