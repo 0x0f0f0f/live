@@ -11,6 +11,7 @@ from ml4t.backtest.types import Order, OrderSide, OrderType, Position
 
 from ml4t.live.engine import LiveEngine
 from ml4t.live.protocols import AsyncBrokerProtocol, DataFeedProtocol
+from ml4t.live.safety import LiveRiskConfig, SafeBroker
 
 # === Mock Implementations ===
 
@@ -24,6 +25,7 @@ class MockAsyncBroker:
         self._connected = False
         self._cash = 100_000.0
         self._account_value = 100_000.0
+        self.submit_calls = 0
 
     # Properties (expected by ThreadSafeBrokerWrapper)
     @property
@@ -84,6 +86,7 @@ class MockAsyncBroker:
     ) -> Order:
         """Submit order."""
         await asyncio.sleep(0.01)  # Simulate network I/O
+        self.submit_calls += 1
 
         # Auto-detect side
         if side is None:
@@ -196,6 +199,18 @@ class ErrorStrategy(Strategy):
         self.call_count += 1
         if self.call_count == self.error_on_bar:
             raise ValueError("Test error")
+
+
+class ShadowEntryStrategy(Strategy):
+    """Strategy that enters once and relies on position state thereafter."""
+
+    def __init__(self):
+        self.order_attempts = 0
+
+    def on_data(self, timestamp: datetime, data: dict, context: dict, broker: Any) -> None:
+        if broker.get_position("AAPL") is None:
+            self.order_attempts += 1
+            broker.submit_order("AAPL", 10, side=OrderSide.BUY)
 
 
 # === Test Cases ===
@@ -499,3 +514,36 @@ async def test_feed_stops_on_engine_stop():
 
     # Feed stopped
     assert feed._stopped is True
+
+
+@pytest.mark.asyncio
+async def test_shadow_mode_end_to_end_uses_virtual_portfolio(tmp_path):
+    """Test LiveEngine + SafeBroker shadow mode without real broker orders."""
+    strategy = ShadowEntryStrategy()
+    broker = MockAsyncBroker()
+    bars = [
+        (datetime(2024, 1, 1, 9, 30), {"AAPL": {"close": 150.0}}, {}),
+        (datetime(2024, 1, 1, 9, 31), {"AAPL": {"close": 151.0}}, {}),
+    ]
+    feed = MockDataFeed(bars)
+    safe_broker = SafeBroker(
+        broker,
+        LiveRiskConfig(
+            shadow_mode=True,
+            dedup_window_seconds=0.0,
+            max_position_value=50_000.0,
+            max_order_value=10_000.0,
+            state_file=str(tmp_path / "shadow_mode_state.json"),
+        ),
+    )
+
+    engine = LiveEngine(strategy, safe_broker, feed)
+    await engine.connect()
+    await engine.run()
+
+    virtual_position = safe_broker._virtual_portfolio.positions.get("AAPL")
+
+    assert strategy.order_attempts == 1
+    assert broker.submit_calls == 0
+    assert virtual_position is not None
+    assert virtual_position.quantity == 10

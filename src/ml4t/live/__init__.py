@@ -13,6 +13,10 @@ from .brokers.ib import IBBroker
 from .engine import LiveEngine
 from .feeds.aggregator import BarAggregator, BarBuffer
 from .feeds.alpaca_feed import AlpacaDataFeed
+from .feeds.crypto_feed import CryptoFeed
+from .feeds.databento_feed import DataBentoFeed
+from .feeds.ib_feed import IBDataFeed
+from .feeds.okx_feed import OKXFundingFeed
 from .protocols import AsyncBrokerProtocol, BrokerProtocol, DataFeedProtocol
 from .safety import LiveRiskConfig, RiskLimitError, RiskState, SafeBroker, VirtualPortfolio
 from .wrappers import ThreadSafeBrokerWrapper
@@ -25,6 +29,10 @@ __all__ = [
     "AlpacaDataFeed",
     "BarAggregator",
     "BarBuffer",
+    "CryptoFeed",
+    "DataBentoFeed",
+    "IBDataFeed",
+    "OKXFundingFeed",
     # Engine
     "LiveEngine",
     # Protocols

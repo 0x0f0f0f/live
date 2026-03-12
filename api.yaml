@@ -1,5 +1,5 @@
 name: ml4t-live
-version: "1.0.0"
+version: "dynamic (from git tag)"
 description: Live trading platform with zero-code migration from backtesting
 
 core_concept: |
@@ -13,7 +13,7 @@ engine:
   methods:
     - connect() -> None
     - run() -> None
-    - shutdown() -> None
+    - stop() -> None
   purpose: Async orchestration of strategy, broker, and data feed
 
 brokers:
@@ -21,24 +21,24 @@ brokers:
     import: ml4t.live.brokers.ib
     requires: ib_async, TWS or IB Gateway
     methods:
-      - connect(host, port, client_id)
-      - submit_order(symbol, quantity, order_type, limit_price)
-      - cancel_order(order_id)
-      - get_positions()
-      - get_account_value()
+      - connect() -> None
+      - submit_order_async(symbol, quantity, order_type, limit_price) -> Order
+      - cancel_order_async(order_id) -> bool
+      - get_positions_async() -> dict
+      - get_account_value_async() -> float
 
   - name: AlpacaBroker
     import: ml4t.live.brokers.alpaca
-    requires: alpaca-trade-api
+    requires: alpaca-py
     methods:
-      - Same as IBBroker
+      - Same async methods as IBBroker
 
 feeds:
   - name: IBDataFeed
     import: ml4t.live.feeds.ib_feed
     purpose: Real-time IB market data
 
-  - name: DatabentoFeed
+  - name: DataBentoFeed
     import: ml4t.live.feeds.databento_feed
     purpose: Institutional-grade streaming data
 
@@ -46,11 +46,11 @@ feeds:
     import: ml4t.live.feeds.crypto_feed
     purpose: Crypto exchange WebSocket feeds
 
-  - name: AlpacaFeed
+  - name: AlpacaDataFeed
     import: ml4t.live.feeds.alpaca_feed
     purpose: Alpaca market data
 
-  - name: OKXFeed
+  - name: OKXFundingFeed
     import: ml4t.live.feeds.okx_feed
     purpose: OKX exchange data
 
@@ -121,7 +121,7 @@ wrappers:
   - name: ThreadSafeBrokerWrapper
     import: ml4t.live.wrappers
     purpose: Bridge sync Strategy.on_data() to async broker
-    implementation: Uses run_coroutine_threadsafe()
+    implementation: Uses run_coroutine_threadsafe() or reentrant same-thread execution
 
   - name: VirtualPortfolio
     import: ml4t.live.safety
@@ -151,10 +151,11 @@ examples:
     from ml4t.live import LiveEngine, IBBroker, IBDataFeed, SafeBroker, LiveRiskConfig
 
     config = LiveRiskConfig(shadow_mode=True)  # No real orders!
-    broker = SafeBroker(IBBroker(), config)
-    feed = IBDataFeed(symbols=["AAPL"])
+    broker = IBBroker()
+    safe_broker = SafeBroker(broker, config)
+    feed = IBDataFeed(broker.ib, symbols=["AAPL"])
 
-    engine = LiveEngine(my_strategy, broker, feed)
+    engine = LiveEngine(my_strategy, safe_broker, feed)
     await engine.connect()
     await engine.run()
 
@@ -185,7 +186,9 @@ dependencies:
   required:
     - ml4t-backtest (Strategy, Order, Position)
     - ib-async (IB integration)
+    - alpaca-py (Alpaca broker and feed)
+    - ccxt (CryptoFeed)
+    - httpx (OKXFundingFeed)
 
   optional:
-    - alpaca-trade-api (Alpaca broker)
-    - databento (Databento feed)
+    - databento (DataBentoFeed)
