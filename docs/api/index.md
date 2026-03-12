@@ -6,11 +6,15 @@
     options:
       show_root_heading: true
 
-::: ml4t.live.config.LiveRiskConfig
+::: ml4t.live.safety.LiveRiskConfig
     options:
       show_root_heading: true
 
-::: ml4t.live.broker.SafeBroker
+::: ml4t.live.safety.SafeBroker
+    options:
+      show_root_heading: true
+
+::: ml4t.live.wrappers.ThreadSafeBrokerWrapper
     options:
       show_root_heading: true
 
@@ -26,20 +30,40 @@
 
 ## Data Feeds
 
-::: ml4t.live.feeds.ib.IBDataFeed
+::: ml4t.live.feeds.ib_feed.IBDataFeed
     options:
       show_root_heading: true
 
-::: ml4t.live.feeds.databento.DatabentoFeed
+::: ml4t.live.feeds.alpaca_feed.AlpacaDataFeed
     options:
       show_root_heading: true
 
-## Exceptions
-
-::: ml4t.live.exceptions
+::: ml4t.live.feeds.databento_feed.DataBentoFeed
     options:
       show_root_heading: true
-      members:
-        - BrokerConnectionError
-        - RiskLimitExceeded
-        - DataFeedError
+
+::: ml4t.live.feeds.crypto_feed.CryptoFeed
+    options:
+      show_root_heading: true
+
+::: ml4t.live.feeds.okx_feed.OKXFundingFeed
+    options:
+      show_root_heading: true
+
+::: ml4t.live.feeds.aggregator.BarAggregator
+    options:
+      show_root_heading: true
+
+## Safety Types
+
+::: ml4t.live.safety.RiskLimitError
+    options:
+      show_root_heading: true
+
+::: ml4t.live.safety.RiskState
+    options:
+      show_root_heading: true
+
+::: ml4t.live.safety.VirtualPortfolio
+    options:
+      show_root_heading: true

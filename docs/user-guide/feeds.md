@@ -1,59 +1,73 @@
 # Data Feeds
 
-Market data sources for live trading.
+`ml4t-live` supports multiple live and replay data sources through `DataFeedProtocol`.
 
-## Interactive Brokers Feed
+Each feed yields:
 
-Real-time data from IB:
+- `timestamp`
+- `data`
+- `context`
+
+where `data` is typically shaped like `{symbol: {"open", "high", "low", "close", "volume"}}` for
+bar feeds or `{symbol: {"price", "size"}}` for tick-style feeds.
+
+## AlpacaDataFeed
 
 ```python
-from ml4t.live import IBDataFeed
+from ml4t.live import AlpacaDataFeed
 
-feed = IBDataFeed(
-    symbols=["AAPL", "MSFT", "GOOGL"],
-    host="127.0.0.1",
-    port=7497,
+feed = AlpacaDataFeed(
+    api_key="...",
+    secret_key="...",
+    symbols=["AAPL", "BTC/USD"],
+    data_type="bars",  # "bars", "quotes", or "trades"
+    feed="iex",        # "iex" or "sip"
 )
 ```
 
-### Subscription
+## IBDataFeed
+
+`IBDataFeed` uses an existing connected IB session:
 
 ```python
-await feed.connect()
-await feed.subscribe()
+from ml4t.live import IBBroker, IBDataFeed
 
-# Data arrives via callbacks
-async for bar in feed:
-    print(f"{bar.symbol}: {bar.close}")
+broker = IBBroker(port=7497)
+await broker.connect()
+
+feed = IBDataFeed(broker.ib, symbols=["SPY", "QQQ"])
 ```
 
-## Databento Feed
+This feed emits tick-style updates. Wrap it in `BarAggregator` if your strategy expects bars.
 
-High-quality market data:
+## DataBentoFeed
+
+Historical replay:
 
 ```python
-from ml4t.live import DatabentoFeed
+from ml4t.live import DataBentoFeed
 
-feed = DatabentoFeed(
-    api_key="YOUR_API_KEY",
-    symbols=["AAPL", "MSFT"],
-    schema="ohlcv-1m",  # 1-minute bars
+feed = DataBentoFeed.from_file(
+    "data/ES_202401.dbn",
+    symbols=["ES.FUT"],
+    replay_speed=10.0,
 )
 ```
 
-## Crypto Feeds
-
-### Binance
+Live streaming:
 
 ```python
-from ml4t.live import BinanceFeed
-
-feed = BinanceFeed(
-    symbols=["BTCUSDT", "ETHUSDT"],
+feed = DataBentoFeed.from_live(
+    api_key="...",
+    dataset="GLBX.MDP3",
+    schema="ohlcv-1s",
+    symbols=["ES.c.0", "NQ.c.0"],
 )
 ```
 
-### Generic Crypto
+`DataBentoFeed` requires the optional `databento` package.
+
+## CryptoFeed
 
 ```python
 from ml4t.live import CryptoFeed
@@ -61,55 +75,62 @@ from ml4t.live import CryptoFeed
 feed = CryptoFeed(
     exchange="binance",
     symbols=["BTC/USDT", "ETH/USDT"],
+    timeframe="1m",
+    stream_ohlcv=True,
 )
 ```
 
-## Using with LiveEngine
+This feed uses `ccxt` or `ccxt.pro` depending on availability.
+
+## OKXFundingFeed
 
 ```python
-from ml4t.live import LiveEngine, IBBroker, IBDataFeed, SafeBroker, LiveRiskConfig
+from ml4t.live import OKXFundingFeed
 
-config = LiveRiskConfig(shadow_mode=True)
-broker = SafeBroker(IBBroker(), config)
-feed = IBDataFeed(symbols=["AAPL", "MSFT"])
-
-engine = LiveEngine(my_strategy, broker, feed)
-await engine.connect()
-await engine.run()
+feed = OKXFundingFeed(
+    symbols=["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
+    timeframe="1H",
+    poll_interval_seconds=60.0,
+)
 ```
 
-## Bar Aggregation
+This feed combines OHLCV bars with funding-rate context for perpetual futures strategies.
 
-The `BarAggregator` combines tick data into bars:
+## BarAggregator
+
+Use `BarAggregator` to convert tick or sub-minute feeds into larger bars:
 
 ```python
 from ml4t.live import BarAggregator
 
-aggregator = BarAggregator(
-    bar_size="1min",
-    timeout_seconds=65,  # Flush incomplete bars
+feed = BarAggregator(
+    source_feed=raw_feed,
+    bar_size_minutes=1,
+    flush_timeout_seconds=2.0,
 )
 ```
 
-## Data Quality
-
-The feed monitors data quality:
+Optional filtering:
 
 ```python
-from ml4t.live import LiveRiskConfig
-
-config = LiveRiskConfig(
-    max_data_staleness_seconds=60,  # Alert on stale data
-)
+feed = BarAggregator(raw_feed, bar_size_minutes=5, assets=["SPY", "QQQ"])
 ```
 
-## Error Handling
+## Using a Feed With LiveEngine
 
 ```python
-from ml4t.live import DataFeedError
-
-try:
-    await feed.connect()
-except DataFeedError:
-    print("Failed to connect to data feed")
+engine = LiveEngine(strategy, safe_broker, feed)
+await engine.connect()
+await engine.run()
 ```
+
+`LiveEngine.connect()` starts the feed for you. You do not need to call `feed.start()` separately in
+the normal engine flow.
+
+## Choosing a Feed
+
+- Use `AlpacaDataFeed` for Alpaca-native stocks and crypto
+- Use `IBDataFeed` when IB is your broker and you want direct market data from TWS/Gateway
+- Use `DataBentoFeed` for replay and institutional market-data workflows
+- Use `CryptoFeed` for exchange-agnostic crypto streaming
+- Use `OKXFundingFeed` for perpetual swap strategies that depend on funding-rate context

@@ -1,107 +1,94 @@
 # Quickstart
 
-Run your first live trading strategy in 5 minutes.
+The recommended first run is shadow mode: your strategy executes through the live engine and risk
+checks, but no real orders are sent to the broker.
 
-## Step 1: Shadow Mode (Recommended)
-
-Always start in shadow mode - orders are logged but not executed:
+## First Strategy
 
 ```python
-from ml4t.live import LiveEngine, IBBroker, IBDataFeed, SafeBroker, LiveRiskConfig
+import asyncio
+
 from ml4t.backtest import Strategy
+from ml4t.backtest.types import OrderSide
+from ml4t.live import AlpacaBroker, AlpacaDataFeed, LiveEngine, LiveRiskConfig, SafeBroker
 
-class SimpleStrategy(Strategy):
+
+class BuyOnceStrategy(Strategy):
     def on_data(self, timestamp, data, context, broker):
-        if data["close"] > data["sma_20"]:
-            broker.submit_order("AAPL", 100)
+        bar = data.get("SPY")
+        if bar is None:
+            return
 
-# Shadow mode - no real orders!
-config = LiveRiskConfig(shadow_mode=True)
-broker = SafeBroker(IBBroker(), config)
-feed = IBDataFeed(symbols=["AAPL"])
+        if broker.get_position("SPY") is None:
+            broker.submit_order("SPY", 10, side=OrderSide.BUY)
 
-engine = LiveEngine(SimpleStrategy(), broker, feed)
-await engine.connect()
-await engine.run()
+
+async def main():
+    broker = AlpacaBroker(api_key="...", secret_key="...", paper=True)
+    feed = AlpacaDataFeed(
+        api_key="...",
+        secret_key="...",
+        symbols=["SPY"],
+        data_type="bars",
+    )
+    safe_broker = SafeBroker(
+        broker,
+        LiveRiskConfig(
+            shadow_mode=True,
+            max_position_value=25_000,
+            max_order_value=5_000,
+        ),
+    )
+
+    engine = LiveEngine(BuyOnceStrategy(), safe_broker, feed)
+    await engine.connect()
+
+    try:
+        await engine.run()
+    finally:
+        await engine.stop()
+
+
+asyncio.run(main())
 ```
 
-## Step 2: Paper Trading
+## Why This Works
 
-Graduate to paper trading with simulated orders:
+- Your strategy stays synchronous, just like in `ml4t-backtest`
+- `LiveEngine` runs broker/feed I/O asynchronously
+- `ThreadSafeBrokerWrapper` lets strategy code call `broker.submit_order(...)` safely
+- `SafeBroker` enforces limits before any live order can be placed
+
+## Deployment Progression
+
+1. Shadow mode: `shadow_mode=True`
+2. Paper trading: `shadow_mode=False` with paper broker credentials
+3. Small live size: conservative limits and low notional exposure
+4. Gradual scale-up only after observing stable behavior
+
+## Common Variations
+
+### Interactive Brokers Feed
+
+`IBDataFeed` needs a connected IB session object:
 
 ```python
-config = LiveRiskConfig(
-    shadow_mode=False,  # Real orders to paper account
-    max_position_value=25_000,
-    max_daily_loss=2_000,
-)
+broker = IBBroker(port=7497)
+await broker.connect()
+
+feed = IBDataFeed(broker.ib, symbols=["SPY", "QQQ"])
 ```
 
-## Step 3: Live Trading (Careful!)
-
-Only after thorough testing:
+### Aggregate Ticks Into Bars
 
 ```python
-config = LiveRiskConfig(
-    shadow_mode=False,
-    max_position_value=10_000,
-    max_order_value=5_000,
-    max_daily_loss=1_000,
-)
-
-# Connect to live IB (port 7496)
-broker = SafeBroker(
-    IBBroker(port=7496),  # Live port
-    config
-)
-```
-
-## Risk Controls
-
-Configure comprehensive risk limits:
-
-```python
-config = LiveRiskConfig(
-    # Mode
-    shadow_mode=True,
-
-    # Position Limits
-    max_position_value=25_000,
-    max_shares=1000,
-    max_positions=10,
-
-    # Order Limits
-    max_order_value=10_000,
-
-    # Loss Limits
-    max_daily_loss=2_000,
-    max_drawdown_pct=0.10,
-
-    # Safety Checks
-    max_price_deviation_pct=0.05,  # Fat finger protection
-    max_data_staleness_seconds=60,
-    dedup_window_seconds=5,
-
-    # Emergency
-    kill_switch_enabled=False,
-)
-```
-
-## Error Handling
-
-```python
-from ml4t.live import BrokerConnectionError, RiskLimitExceeded
-
-try:
-    await engine.run()
-except BrokerConnectionError:
-    print("Lost connection to broker")
-except RiskLimitExceeded as e:
-    print(f"Risk limit violated: {e}")
+raw_feed = IBDataFeed(broker.ib, symbols=["SPY"])
+feed = BarAggregator(raw_feed, bar_size_minutes=1, flush_timeout_seconds=2.0)
 ```
 
 ## Next Steps
 
-- [Risk Controls](../user-guide/risk.md) - Detailed risk configuration
-- [Brokers](../user-guide/brokers.md) - Broker-specific setup
-- [Data Feeds](../user-guide/feeds.md) - Market data options
+- [Installation](installation.md)
+- [Brokers](../user-guide/brokers.md)
+- [Data Feeds](../user-guide/feeds.md)
+- [Risk Controls](../user-guide/risk.md)

@@ -2,46 +2,56 @@
 
 ## Requirements
 
-- Python 3.11 or higher
-- ml4t-backtest (for Strategy class)
-- ib-async (for Interactive Brokers)
+- Python 3.11+
+- A supported broker or data source for live use
+- `ml4t-backtest` is installed automatically as a package dependency
 
-## Install from PyPI
+## Install From PyPI
 
 ```bash
-pip install ml4t-live ml4t-backtest
+pip install ml4t-live
 ```
 
-## Install from Source
+## Optional Add-Ons
+
+`ml4t-live` installs the core broker/feed stack used by the package. DataBento is optional and must
+be installed separately if you want `DataBentoFeed`:
 
 ```bash
-git clone https://github.com/stefan-jansen/ml4t-live.git
-cd ml4t-live
-pip install -e .
+pip install databento
+```
+
+## Install From Source
+
+```bash
+git clone https://github.com/ml4t/live.git
+cd live
+uv sync --dev
 ```
 
 ## Broker Setup
 
 ### Interactive Brokers
 
-1. Download TWS or IB Gateway from [Interactive Brokers](https://www.interactivebrokers.com/)
-2. Enable API connections in TWS/Gateway settings
-3. Configure port (default: 7497 for paper, 7496 for live)
+1. Install and launch TWS or IB Gateway
+2. Enable API access in the IB settings
+3. Use port `7497` for paper trading or `7496` for live trading
 
 ```python
 from ml4t.live import IBBroker
 
 broker = IBBroker(
     host="127.0.0.1",
-    port=7497,  # Paper trading port
+    port=7497,
     client_id=1,
 )
 ```
 
 ### Alpaca
 
-1. Sign up at [Alpaca](https://alpaca.markets/)
-2. Get API keys from the dashboard
+1. Create an Alpaca account
+2. Generate API credentials
+3. Start with `paper=True`
 
 ```python
 from ml4t.live import AlpacaBroker
@@ -49,14 +59,22 @@ from ml4t.live import AlpacaBroker
 broker = AlpacaBroker(
     api_key="YOUR_API_KEY",
     secret_key="YOUR_SECRET_KEY",
-    paper=True,  # Use paper trading
+    paper=True,
 )
 ```
 
 ## Verify Installation
 
 ```python
-from ml4t.live import LiveEngine, SafeBroker, LiveRiskConfig
+from ml4t.live import (
+    AlpacaBroker,
+    AlpacaDataFeed,
+    BarAggregator,
+    IBBroker,
+    LiveEngine,
+    LiveRiskConfig,
+    SafeBroker,
+)
 
-print("ml4t-live installed successfully!")
+print("ml4t-live imports succeeded")
 ```

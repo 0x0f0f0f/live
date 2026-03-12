@@ -1,47 +1,39 @@
 # Brokers
 
-Broker integrations for live trading.
+`ml4t-live` currently ships two broker adapters:
+
+- `IBBroker` for Interactive Brokers
+- `AlpacaBroker` for Alpaca stocks and crypto
+
+## Broker Model
+
+The raw broker implementations are asynchronous. They implement `AsyncBrokerProtocol` and are meant
+to be used by `LiveEngine` and `SafeBroker`.
+
+- Strategy code uses synchronous broker calls such as `broker.get_position(...)`
+- Raw broker instances use async methods such as `await broker.get_cash_async()`
 
 ## Interactive Brokers
-
-The most comprehensive broker integration:
 
 ```python
 from ml4t.live import IBBroker
 
 broker = IBBroker(
     host="127.0.0.1",
-    port=7497,      # 7497=paper, 7496=live
+    port=7497,  # paper
     client_id=1,
 )
-```
 
-### Setup
-
-1. Download TWS or IB Gateway from [Interactive Brokers](https://www.interactivebrokers.com/)
-2. Enable API connections in settings
-3. Configure the socket port
-
-### Paper vs Live
-
-```python
-# Paper trading (port 7497)
-paper_broker = IBBroker(port=7497)
-
-# Live trading (port 7496) - BE CAREFUL!
-live_broker = IBBroker(port=7496)
-```
-
-### Connection
-
-```python
 await broker.connect()
-await broker.disconnect()
 ```
+
+### Notes
+
+- `7497` is the usual TWS paper port
+- `7496` is the usual TWS live port
+- You must have TWS or IB Gateway running with API access enabled
 
 ## Alpaca
-
-Commission-free stock trading:
 
 ```python
 from ml4t.live import AlpacaBroker
@@ -49,79 +41,71 @@ from ml4t.live import AlpacaBroker
 broker = AlpacaBroker(
     api_key="YOUR_API_KEY",
     secret_key="YOUR_SECRET_KEY",
-    paper=True,  # Use paper trading
-)
-```
-
-### Setup
-
-1. Sign up at [Alpaca](https://alpaca.markets/)
-2. Get API keys from the dashboard
-3. Use paper=True for testing
-
-### Paper vs Live
-
-```python
-# Paper trading
-paper_broker = AlpacaBroker(
-    api_key="...",
-    secret_key="...",
     paper=True,
 )
 
-# Live trading
-live_broker = AlpacaBroker(
-    api_key="...",
-    secret_key="...",
-    paper=False,
+await broker.connect()
+```
+
+### Notes
+
+- `paper=True` is the safe default
+- The broker maintains positions and pending orders internally from Alpaca account state and trade
+  updates
+
+## Recommended Wrapper
+
+Wrap raw brokers with `SafeBroker` before handing them to `LiveEngine`:
+
+```python
+from ml4t.live import LiveRiskConfig, SafeBroker
+
+safe_broker = SafeBroker(
+    broker,
+    LiveRiskConfig(
+        shadow_mode=True,
+        max_position_value=25_000,
+        max_order_value=5_000,
+    ),
 )
 ```
 
-## SafeBroker Wrapper
+## Direct Async Broker Calls
 
-Always wrap brokers with SafeBroker for risk management:
+Outside strategy code, use the broker asynchronously:
 
 ```python
-from ml4t.live import SafeBroker, LiveRiskConfig
-
-config = LiveRiskConfig(
-    shadow_mode=True,
-    max_position_value=10_000,
-)
-
-# Wrap any broker
-safe_broker = SafeBroker(IBBroker(), config)
+cash = await broker.get_cash_async()
+equity = await broker.get_account_value_async()
+order = await broker.submit_order_async("AAPL", 10)
 ```
 
-## Order Submission
+## Strategy-Side Calls
 
-All brokers share the same order interface:
+Inside `Strategy.on_data(...)`, the broker object is synchronous:
 
 ```python
-# Market order
-broker.submit_order("AAPL", 100)
-
-# With order type (if supported)
-broker.submit_order("AAPL", 100, order_type="limit", limit_price=150.00)
+def on_data(self, timestamp, data, context, broker):
+    if broker.get_position("AAPL") is None:
+        broker.submit_order("AAPL", 10)
 ```
 
-## Position Tracking
+## Disconnect
 
 ```python
-# Get current positions
-positions = await broker.get_positions()
-
-# Get account value
-account = await broker.get_account()
+await broker.disconnect()
 ```
 
 ## Error Handling
 
+Broker connection and order failures surface as standard Python exceptions, typically
+`RuntimeError`, broker SDK exceptions, or `RiskLimitError` when wrapped by `SafeBroker`.
+
 ```python
-from ml4t.live import BrokerConnectionError
+from ml4t.live import RiskLimitError
 
 try:
-    await broker.connect()
-except BrokerConnectionError:
-    print("Failed to connect to broker")
+    await safe_broker.submit_order_async("AAPL", 10_000)
+except RiskLimitError as exc:
+    print(f"blocked by risk controls: {exc}")
 ```

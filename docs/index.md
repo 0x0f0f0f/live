@@ -1,56 +1,61 @@
 # ML4T Live
 
-Live trading platform enabling **zero-code migration** from backtesting to live trading.
+Live trading infrastructure for ML4T strategies.
 
 ## Overview
 
-ML4T Live lets you copy-paste your Strategy class from ml4t-backtest to live trading with **no code changes**. The same strategy works in both environments.
+The main design goal is strategy portability: a strategy written for `ml4t-backtest` should keep the
+same synchronous `on_data(...)` shape when moved into live execution.
 
-## Key Concept: Zero-Code Migration
-
-```python
-# This exact Strategy class works in BOTH backtest and live:
-class MyStrategy(Strategy):
-    def on_data(self, timestamp, data, context, broker):
-        if data["close"] > data["sma_20"]:
-            broker.submit_order("AAPL", 100)
-```
+`LiveEngine` handles the async broker/feed runtime, and `ThreadSafeBrokerWrapper` bridges that async
+runtime back to the synchronous strategy interface.
 
 ## Architecture
 
+```text
+LiveEngine
+    |
+    +-- SafeBroker
+    |       +-- IBBroker / AlpacaBroker
+    |
+    +-- ThreadSafeBrokerWrapper
+    |       +-- Strategy.on_data(...)
+    |
+    +-- DataFeedProtocol
+            +-- IBDataFeed / AlpacaDataFeed / DataBentoFeed / CryptoFeed / OKXFundingFeed
+            +-- optional BarAggregator wrapper
 ```
-LiveEngine (async orchestration)
-    |
-    +-- ThreadSafeBrokerWrapper (sync/async bridge)
-    |       +-- Strategy.on_data() (sync, matches backtest API)
-    |
-    +-- SafeBroker (risk layer)
-    |       +-- IBBroker / AlpacaBroker (async broker)
-    |
-    +-- DataFeed (market data)
-            +-- IBFeed / DatabentoFeed / CryptoFeed
-```
 
-## Safety First
+## Safety Model
 
-ML4T Live is designed with safety as the top priority:
+The intended rollout path is:
 
-1. **Shadow Mode**: Test strategies without real orders
-2. **Paper Trading**: Validate with simulated orders
-3. **Risk Limits**: Position, order, and loss limits
-4. **Kill Switch**: Emergency halt capability
+1. Shadow mode
+2. Paper trading
+3. Small live size
+4. Gradual scale-up
+
+`SafeBroker` provides:
+
+- position and exposure limits
+- order-size and rate limits
+- duplicate-order suppression
+- drawdown-triggered kill switch
+- persistent state across restarts
+- virtual portfolio tracking in shadow mode
 
 ## Quick Example
 
 ```python
-from ml4t.live import LiveEngine, IBBroker, IBDataFeed, SafeBroker, LiveRiskConfig
+from ml4t.live import AlpacaBroker, AlpacaDataFeed, LiveEngine, LiveRiskConfig, SafeBroker
 
-# Always start in shadow mode!
-config = LiveRiskConfig(shadow_mode=True)
-broker = SafeBroker(IBBroker(), config)
-feed = IBDataFeed(symbols=["AAPL", "MSFT"])
+safe_broker = SafeBroker(
+    AlpacaBroker(api_key="...", secret_key="...", paper=True),
+    LiveRiskConfig(shadow_mode=True),
+)
+feed = AlpacaDataFeed(api_key="...", secret_key="...", symbols=["SPY"])
 
-engine = LiveEngine(my_strategy, broker, feed)
+engine = LiveEngine(my_strategy, safe_broker, feed)
 await engine.connect()
 await engine.run()
 ```
@@ -58,30 +63,21 @@ await engine.run()
 ## Installation
 
 ```bash
-pip install ml4t-live ml4t-backtest
+pip install ml4t-live
 ```
+
+Install `databento` separately if you want `DataBentoFeed`.
 
 ## Next Steps
 
-- [Installation Guide](getting-started/installation.md) - Setup instructions
-- [Quickstart](getting-started/quickstart.md) - Your first live strategy
-- [Risk Controls](user-guide/risk.md) - Configure safety limits
-- [API Reference](api/index.md) - Complete API documentation
-
-## Part of the ML4T Library Suite
-
-ML4T Live is the final stage in the ML4T workflow:
-
-```
-ml4t-data → ml4t-engineer → ml4t-diagnostic → ml4t-backtest → ml4t-live
-```
+- [Installation Guide](getting-started/installation.md)
+- [Quickstart](getting-started/quickstart.md)
+- [Brokers](user-guide/brokers.md)
+- [Data Feeds](user-guide/feeds.md)
+- [Risk Controls](user-guide/risk.md)
+- [API Reference](api/index.md)
 
 ## Disclaimer
 
-**This library is designed for paper trading and educational purposes.**
-
-- Always start with shadow_mode=True
-- Graduate to paper trading before live
-- Use small positions when going live
-- Set conservative risk limits
-- This is NOT a substitute for professional trading systems
+This library reduces operational risk but does not remove it. Start in shadow mode, validate order
+flow carefully, and treat live deployment as a staged rollout rather than a one-step migration.
