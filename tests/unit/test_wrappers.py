@@ -15,6 +15,7 @@ IMPORTANT: Tests must call wrapper methods from worker thread
 import asyncio
 from datetime import datetime
 
+import nest_asyncio
 import pytest
 from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
 
@@ -409,3 +410,19 @@ async def test_run_from_worker_thread():
 
     result = await asyncio.to_thread(strategy_code)
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_submit_order_from_event_loop_thread_with_nest_asyncio():
+    """Test reentrant script/notebook usage from the loop thread."""
+    broker = MockAsyncBroker()
+    loop = asyncio.get_running_loop()
+    wrapper = ThreadSafeBrokerWrapper(broker, loop)
+
+    nest_asyncio.apply(loop)
+
+    order = wrapper.submit_order("AAPL", 100, OrderSide.BUY)
+
+    assert order.asset == "AAPL"
+    assert order.side == OrderSide.BUY
+    assert order.quantity == 100

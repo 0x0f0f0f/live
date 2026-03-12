@@ -84,7 +84,7 @@ class TestIBBrokerSetup:
             host="127.0.0.1",
             port=7497,
             clientId=1,
-            account=None,
+            account="",
             timeout=15,
         )
 

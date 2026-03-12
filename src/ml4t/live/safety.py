@@ -814,6 +814,7 @@ class SafeBroker:
         pos = self.get_position(asset)
         current_qty = pos.quantity if pos else 0
         current_value = abs(pos.market_value) if pos else 0
+        order_unit_price = order_value / abs(quantity) if quantity else 0.0
 
         # Projected position
         if side == OrderSide.BUY:
@@ -821,7 +822,8 @@ class SafeBroker:
         else:
             projected_qty = current_qty - quantity
 
-        projected_value = current_value + order_value
+        projected_value = abs(projected_qty) * order_unit_price
+        total = sum(abs(p.market_value) for p in self.positions.values()) - current_value
 
         if projected_value > self.config.max_position_value:
             raise RiskLimitError(
@@ -836,10 +838,9 @@ class SafeBroker:
             )
 
         # Total exposure
-        total = sum(abs(p.market_value) for p in self.positions.values())
-        if total + order_value > self.config.max_total_exposure:
+        if total + projected_value > self.config.max_total_exposure:
             raise RiskLimitError(
-                f"Total exposure ${total + order_value:,.0f} would exceed "
+                f"Total exposure ${total + projected_value:,.0f} would exceed "
                 f"max ${self.config.max_total_exposure:,.0f}"
             )
 

@@ -124,6 +124,7 @@ class BarAggregator:
         # Output queue (use None sentinel for shutdown instead of timeout)
         self._queue: asyncio.Queue = asyncio.Queue()
         self._running = False
+        self._aggregate_task: asyncio.Task | None = None
         self._flush_task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -132,14 +133,15 @@ class BarAggregator:
         await self.source.start()
 
         # Start aggregation task
-        asyncio.create_task(self._aggregate_loop())
+        self._aggregate_task = asyncio.create_task(self._aggregate_loop())
 
     def stop(self) -> None:
         """Stop aggregation."""
         self._running = False
         self.source.stop()
-        # Signal consumer to exit via sentinel
-        self._queue.put_nowait(None)
+        self._signal_stop()
+        if self._aggregate_task:
+            self._aggregate_task.cancel()
         # Cancel flush task
         if self._flush_task:
             self._flush_task.cancel()
@@ -169,6 +171,9 @@ class BarAggregator:
 
                 # Accumulate data into buffers
                 for asset, ohlcv in data.items():
+                    if self.assets and asset not in self.assets:
+                        continue
+
                     if asset not in self._buffers:
                         self._buffers[asset] = BarBuffer()
 
@@ -180,8 +185,13 @@ class BarAggregator:
                         # Tick data
                         self._buffers[asset].update(ohlcv["price"], ohlcv.get("size", 0))
         finally:
+            self._aggregate_task = None
             if self._flush_task:
                 self._flush_task.cancel()
+                self._flush_task = None
+            if self._running:
+                self._running = False
+                self._signal_stop()
 
     async def _flush_checker(self) -> None:
         """Force emit bars if no data arrives (Gemini "stuck bar" fix).
@@ -195,13 +205,17 @@ class BarAggregator:
                 continue
 
             # Check if we're past the bar end time + flush timeout
-            now = datetime.now()
+            now = datetime.now(tz=self._current_bar_start.tzinfo)
             bar_end = self._current_bar_start + self.bar_size
 
             if now > bar_end + timedelta(seconds=self.flush_timeout):
                 logger.debug(f"Flush: Emitting stale bar at {self._current_bar_start}")
                 await self._emit_bar(self._current_bar_start)
                 self._current_bar_start = None  # Prevent double emit
+
+    def _signal_stop(self) -> None:
+        """Signal consumers that iteration should stop."""
+        self._queue.put_nowait(None)
 
     def _truncate_to_bar(self, dt: datetime) -> datetime:
         """Truncate datetime to bar boundary.

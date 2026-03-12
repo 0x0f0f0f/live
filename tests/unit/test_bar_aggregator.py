@@ -1,11 +1,11 @@
 """Unit tests for BarAggregator."""
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from ml4t.live.feeds.aggregator import BarAggregator
+from ml4t.live.feeds.aggregator import BarAggregator, BarBuffer
 
 
 class MockDataFeed:
@@ -174,6 +174,34 @@ class TestBarAggregator:
         assert data["AAPL"]["open"] == 150.0
         assert data["GOOGL"]["open"] == 2800.0
 
+    async def test_assets_filter(self):
+        """Test that the optional assets filter is applied."""
+        base_time = datetime(2024, 1, 1, 10, 0, 0)
+        mock_data = [
+            (
+                base_time,
+                {"AAPL": {"price": 150.0, "size": 100}, "GOOGL": {"price": 2800.0, "size": 50}},
+                {},
+            ),
+            (
+                base_time + timedelta(minutes=1),
+                {"AAPL": {"price": 151.0, "size": 75}, "GOOGL": {"price": 2805.0, "size": 20}},
+                {},
+            ),
+        ]
+        mock_feed = MockDataFeed(mock_data)
+        aggregator = BarAggregator(mock_feed, assets=["AAPL"])
+
+        await aggregator.start()
+        bars = []
+
+        async for timestamp, data, context in aggregator:
+            bars.append((timestamp, data, context))
+
+        assert len(bars) == 1
+        assert "AAPL" in bars[0][1]
+        assert "GOOGL" not in bars[0][1]
+
     async def test_ohlcv_bar_input(self):
         """Test handling OHLCV bar input (not just ticks)."""
         base_time = datetime(2024, 1, 1, 10, 0, 0)
@@ -338,6 +366,29 @@ class TestBarAggregator:
 
         # Should have stopped cleanly
         assert len(bars) >= 2
+
+    async def test_flush_checker_handles_timezone_aware_bars(self):
+        """Test flush checker works with timezone-aware timestamps."""
+        mock_feed = MockDataFeed([])
+        aggregator = BarAggregator(mock_feed, flush_timeout_seconds=0.0)
+        aggregator._running = True
+        aggregator._current_bar_start = datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)
+        aggregator._buffers["AAPL"] = BarBuffer()
+        aggregator._buffers["AAPL"].update(150.0, 100)
+
+        flush_task = asyncio.create_task(aggregator._flush_checker())
+        try:
+            bar_time, data, _context = await asyncio.wait_for(aggregator._queue.get(), timeout=1.5)
+        finally:
+            aggregator._running = False
+            flush_task.cancel()
+            try:
+                await flush_task
+            except asyncio.CancelledError:
+                pass
+
+        assert bar_time == datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)
+        assert data["AAPL"]["close"] == 150.0
 
     async def test_empty_feed(self):
         """Test handling of empty data feed."""

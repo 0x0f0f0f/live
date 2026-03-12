@@ -361,6 +361,28 @@ async def test_check_position_limits_max_total_exposure(mock_broker, config):
         )
 
 
+async def test_check_position_limits_allows_reducing_exposure(mock_broker, config):
+    """Test _check_position_limits allows trades that reduce risk."""
+    config.max_position_value = 10_000.0
+    config.max_total_exposure = 10_000.0
+    safe = SafeBroker(mock_broker, config)
+
+    safe._broker.positions = {
+        "AAPL": Position(
+            asset="AAPL",
+            quantity=100,
+            entry_price=150.0,
+            entry_time=datetime.now(),
+            current_price=150.0,
+        )
+    }
+    safe._broker.get_position = lambda a: safe._broker.positions.get(a)
+
+    await safe._check_position_limits(
+        asset="AAPL", quantity=40, order_value=6_000.0, side=OrderSide.SELL
+    )
+
+
 async def test_check_position_limits_max_positions(mock_broker, config):
     """Test _check_position_limits enforces max number of positions."""
     config.max_positions = 2

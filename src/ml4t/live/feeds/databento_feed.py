@@ -209,8 +209,7 @@ class DataBentoFeed(DataFeedProtocol):
         if self._replay_task:
             self._replay_task.cancel()
 
-        # Signal consumer
-        self._queue.put_nowait(None)
+        self._signal_stop()
 
         logger.info(f"DataBentoFeed: Stopped. Records: {self._record_count}")
 
@@ -221,41 +220,50 @@ class DataBentoFeed(DataFeedProtocol):
         """
         last_timestamp: datetime | None = None
 
-        for record in self.client:
-            if not self._running:
-                break
+        try:
+            for record in self.client:
+                if not self._running:
+                    break
 
-            # Convert to our format
-            timestamp, data, context = self._convert_record(record)
+                # Convert to our format
+                timestamp, data, context = self._convert_record(record)
 
-            # Time-based replay (sleep between records)
-            if last_timestamp and self.replay_speed > 0:
-                time_delta = (timestamp - last_timestamp).total_seconds()
-                sleep_time = time_delta / self.replay_speed
-                if sleep_time > 0:
-                    await asyncio.sleep(sleep_time)
+                # Time-based replay (sleep between records)
+                if last_timestamp and self.replay_speed > 0:
+                    time_delta = (timestamp - last_timestamp).total_seconds()
+                    sleep_time = time_delta / self.replay_speed
+                    if sleep_time > 0:
+                        await asyncio.sleep(sleep_time)
 
-            last_timestamp = timestamp
-            self._record_count += 1
+                last_timestamp = timestamp
+                self._record_count += 1
 
-            # Emit data
-            self._queue.put_nowait((timestamp, data, context))
-
-        # End of data
-        self.stop()
+                # Emit data
+                self._queue.put_nowait((timestamp, data, context))
+        finally:
+            if self._running:
+                self._running = False
+                self._signal_stop()
+            self._replay_task = None
 
     async def _stream_live(self) -> None:
         """Stream real-time data from DataBento."""
-        async for record in self.client:
-            if not self._running:
-                break
+        try:
+            async for record in self.client:
+                if not self._running:
+                    break
 
-            # Convert to our format
-            timestamp, data, context = self._convert_record(record)
-            self._record_count += 1
+                # Convert to our format
+                timestamp, data, context = self._convert_record(record)
+                self._record_count += 1
 
-            # Emit data
-            self._queue.put_nowait((timestamp, data, context))
+                # Emit data
+                self._queue.put_nowait((timestamp, data, context))
+        finally:
+            if self._running:
+                self._running = False
+                self._signal_stop()
+            self._replay_task = None
 
     def _convert_record(self, record) -> tuple[datetime, dict, dict]:
         """Convert DataBento record to our format.
@@ -309,13 +317,17 @@ class DataBentoFeed(DataFeedProtocol):
         Yields:
             Tuple of (timestamp, data, context)
         """
-        while self._running:
+        while True:
             item = await self._queue.get()
 
             if item is None:  # Shutdown sentinel
                 break
 
             yield item
+
+    def _signal_stop(self) -> None:
+        """Signal consumers that iteration should stop."""
+        self._queue.put_nowait(None)
 
     @property
     def stats(self) -> dict[str, Any]:

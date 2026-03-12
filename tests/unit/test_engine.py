@@ -164,7 +164,7 @@ assert isinstance(MockDataFeed([]), DataFeedProtocol), (
 )
 
 
-class TestStrategy(Strategy):
+class RecordingStrategy(Strategy):
     """Test strategy that records calls."""
 
     def __init__(self):
@@ -204,7 +204,7 @@ class ErrorStrategy(Strategy):
 @pytest.mark.asyncio
 async def test_engine_initialization():
     """Test LiveEngine initialization."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     feed = MockDataFeed([])
 
@@ -221,7 +221,7 @@ async def test_engine_initialization():
 @pytest.mark.asyncio
 async def test_connect():
     """Test broker and feed connection."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     feed = MockDataFeed([])
 
@@ -242,7 +242,7 @@ async def test_connect():
 @pytest.mark.asyncio
 async def test_run_empty_feed():
     """Test engine with empty data feed."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     feed = MockDataFeed([])
 
@@ -262,7 +262,7 @@ async def test_run_empty_feed():
 @pytest.mark.asyncio
 async def test_run_with_data():
     """Test engine processes bars correctly."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
 
     # Create test bars
@@ -304,7 +304,7 @@ async def test_run_with_data():
 @pytest.mark.asyncio
 async def test_strategy_receives_wrapper():
     """Test strategy receives ThreadSafeBrokerWrapper, not raw broker."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     bars = [
         (
@@ -328,7 +328,7 @@ async def test_strategy_receives_wrapper():
 @pytest.mark.asyncio
 async def test_graceful_shutdown_via_stop():
     """Test engine stops gracefully when stop() called."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
 
     # Long-running feed (100 minutes worth of bars)
@@ -423,7 +423,7 @@ async def test_error_handling_halt():
 @pytest.mark.asyncio
 async def test_stats_property():
     """Test stats property returns correct info."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     bars = [
         (datetime(2024, 1, 1, 9, 30), {"AAPL": {"close": 150.0}}, {}),
@@ -454,7 +454,7 @@ async def test_stats_property():
 @pytest.mark.asyncio
 async def test_run_without_connect_raises():
     """Test run() raises if connect() not called first."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     feed = MockDataFeed([])
 
@@ -467,7 +467,7 @@ async def test_run_without_connect_raises():
 @pytest.mark.asyncio
 async def test_disconnect_on_stop():
     """Test broker disconnects when engine stops."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     feed = MockDataFeed([])
 
@@ -486,7 +486,7 @@ async def test_disconnect_on_stop():
 @pytest.mark.asyncio
 async def test_feed_stops_on_engine_stop():
     """Test data feed stops when engine stops."""
-    strategy = TestStrategy()
+    strategy = RecordingStrategy()
     broker = MockAsyncBroker()
     feed = MockDataFeed([])
 

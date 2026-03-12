@@ -12,6 +12,7 @@ Key Design:
 
 import asyncio
 import logging
+import threading
 from typing import Any
 
 from ml4t.backtest.types import Order, OrderSide, OrderType, Position
@@ -59,6 +60,7 @@ class ThreadSafeBrokerWrapper:
         """
         self._broker = async_broker
         self._loop = loop
+        self._loop_thread_id = threading.get_ident()
 
     # === Properties (direct access, assumed thread-safe) ===
 
@@ -223,6 +225,9 @@ class ThreadSafeBrokerWrapper:
         - Order operations (submit, cancel, close): 30s
         """
         try:
+            if threading.get_ident() == self._loop_thread_id:
+                return self._run_on_loop_thread(coro, timeout)
+
             future = asyncio.run_coroutine_threadsafe(coro, self._loop)
             return future.result(timeout=timeout)
         except TimeoutError:
@@ -231,3 +236,18 @@ class ThreadSafeBrokerWrapper:
         except Exception as e:
             logger.error(f"ThreadSafeBrokerWrapper: Error running coroutine: {e}", exc_info=True)
             raise RuntimeError(f"Broker operation failed: {e}") from e
+
+    def _run_on_loop_thread(self, coro: Any, timeout: float) -> Any:
+        """Run a broker coroutine from the event loop thread.
+
+        Scripts and notebooks may call sync broker methods directly from the
+        event loop thread after patching the loop with nest_asyncio. In that
+        case run_coroutine_threadsafe() can deadlock because nothing drains the
+        cross-thread callback queue until control returns to the loop.
+        """
+        if self._loop.is_running():
+            import nest_asyncio
+
+            nest_asyncio.apply(self._loop)
+
+        return self._loop.run_until_complete(asyncio.wait_for(coro, timeout=timeout))
