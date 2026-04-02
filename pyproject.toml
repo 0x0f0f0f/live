@@ -20,6 +20,11 @@ dev = [
     "ty",
     "pre-commit>=3.0",
 ]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.24.0",
+]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -33,9 +38,6 @@ version-file = "src/ml4t/live/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ml4t"]
-
-[tool.uv.sources]
-ml4t-backtest = { path = "../ml4t-backtest", editable = true }
 
 [dependency-groups]
 dev = [

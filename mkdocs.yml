@@ -7,35 +7,24 @@ site_url: https://ml4t.io/docs/live/
 repo_url: https://github.com/stefan-jansen/ml4t-live
 repo_name: stefan-jansen/ml4t-live
 
-# Theme configuration - Picasso Blue Period palette
+# Theme configuration
 theme:
   name: material
   custom_dir: docs/overrides
 
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: ml4t
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: custom
-      accent: amber
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
+    scheme: default
+    primary: custom
+    accent: custom
 
-  font:
-    text: DM Sans
-    code: JetBrains Mono
+  font: false
 
   features:
     - navigation.tabs
     - navigation.tabs.sticky
+    - navigation.indexes
     - navigation.sections
     - navigation.expand
-    - navigation.path
     - navigation.top
     - navigation.footer
     - toc.follow
@@ -47,10 +36,6 @@ theme:
 
   icon:
     repo: fontawesome/brands/github
-
-# Custom CSS for Picasso palette
-extra_css:
-  - stylesheets/ml4t-theme.css
 
 # Extensions
 markdown_extensions:
@@ -118,14 +103,19 @@ nav:
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
   - User Guide:
+    - Backtest to Live: user-guide/backtest-to-live.md
     - Risk Controls: user-guide/risk.md
     - Brokers: user-guide/brokers.md
     - Data Feeds: user-guide/feeds.md
   - API Reference:
     - api/index.md
+  - Book Guide: book-guide/index.md
 
 # Extra configuration
 extra:
+  ml4t_docs_hub_url: /docs/
+  ml4t_libraries_url: /libraries/
+  ml4t_chapters_url: /chapters/
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/stefan-jansen
