@@ -625,7 +625,7 @@ class SafeBroker:
         order_type: OrderType = OrderType.MARKET,
         limit_price: float | None = None,
         stop_price: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Order:
         """Submit order with full risk validation.
 

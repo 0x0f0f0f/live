@@ -2,7 +2,7 @@
 name = "ml4t-live"
 dynamic = ["version"]
 description = "Live trading platform for ML4T strategies"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "ml4t-backtest",
     "ib-async>=1.0.0",
@@ -64,7 +64,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 exclude = ["_version.py"]
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -86,7 +86,7 @@ ignore = [
 "tests/*" = ["B007", "B011", "F841"]
 
 [tool.ty.environment]
-python-version = "3.11"
+python-version = "3.12"
 root = ["src"]
 
 [tool.ty.src]
