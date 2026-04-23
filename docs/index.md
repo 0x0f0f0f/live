@@ -11,25 +11,33 @@ shadow mode first, then paper trading, then small live size under explicit limit
 <div class="grid cards" markdown>
 
 -   :material-swap-horizontal:{ .lg .middle } __Same Strategy, Live Execution__
+
     ---
+
     Keep the same `Strategy.on_data(...)` interface from `ml4t-backtest`.
     `LiveEngine` handles the async broker and feed runtime around it.
     [:octicons-arrow-right-24: Quickstart](getting-started/quickstart.md)
 
 -   :material-shield-lock:{ .lg .middle } __SafeBroker Risk Controls__
+
     ---
+
     Position caps, order limits, duplicate-order protection, and a persistent kill switch.
     Start in shadow mode before you route anything real.
     [:octicons-arrow-right-24: Risk Controls](user-guide/risk.md)
 
 -   :material-lan:{ .lg .middle } __Multiple Brokers And Feeds__
+
     ---
+
     Alpaca and Interactive Brokers for execution, plus replay and crypto feed options.
     Change infrastructure without forking strategy logic.
     [:octicons-arrow-right-24: Brokers](user-guide/brokers.md)
 
 -   :material-book-open-variant:{ .lg .middle } __From Book To Production__
+
     ---
+
     The book develops strategies in research and backtest form.
     This library runs them live with the same surface and explicit deployment controls.
     [:octicons-arrow-right-24: Book Guide](book-guide/index.md)
