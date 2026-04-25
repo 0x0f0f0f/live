@@ -52,7 +52,9 @@ With `ml4t-live`, you can:
 - connect that strategy to Alpaca or Interactive Brokers
 - replay or stream data through a live-style feed interface
 - start in `shadow_mode=True` so orders are tracked but not routed
-- add hard limits for order size, exposure, order rate, and drawdown before going live
+- add hard limits for order size, exposure, stale data, daily loss, and drawdown before going live
+- inspect persisted state and broker reachability with `ml4t-live status`
+- run bounded shadow sessions from the CLI before promoting to paper or live
 
 If you do not yet have a validated strategy, start in `ml4t-backtest`. If you do have one, this is the
 next layer.
@@ -248,6 +250,11 @@ See [Brokers](user-guide/brokers.md) for connection details and usage patterns.
 | **OKXFundingFeed** | OKX public APIs | OHLCV plus funding context | perpetual futures and funding-rate strategies |
 
 Use [Data Feeds](user-guide/feeds.md) for examples and feed-specific setup.
+
+## Operator Surfaces
+
+The library now includes a small CLI and a set of bounded operator-focused examples.
+Use [CLI](user-guide/cli.md) for `status` and `shadow`, [Examples](user-guide/examples.md) for runnable scripts, and [Operator Guide](user-guide/operator-guide.md) for the recommended promotion workflow.
 
 ## Installation
 

@@ -5,7 +5,7 @@ Provides real-time tick data from IB TWS/Gateway.
 Features:
 - Real-time tick-by-tick data
 - Multiple symbols
-- Automatic reconnection
+- Engine-level watchdog recovery can restart the feed when configured
 - Tick buffering with asyncio.Queue
 
 Example:

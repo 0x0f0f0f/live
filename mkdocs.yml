@@ -107,6 +107,9 @@ nav:
     - Risk Controls: user-guide/risk.md
     - Brokers: user-guide/brokers.md
     - Data Feeds: user-guide/feeds.md
+    - CLI: user-guide/cli.md
+    - Examples: user-guide/examples.md
+    - Operator Guide: user-guide/operator-guide.md
   - API Reference:
     - api/index.md
   - Book Guide: book-guide/index.md

@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -142,6 +142,7 @@ class MockDataFeed:
         """Start feed."""
         await asyncio.sleep(0.01)
         self._started = True
+        self._stopped = False
 
     def stop(self) -> None:
         """Stop feed."""
@@ -159,6 +160,54 @@ class MockDataFeed:
         timestamp, data, context = self.bars.pop(0)
         await asyncio.sleep(self.delay)
         return timestamp, data, context
+
+
+class RecoverableFeed:
+    """Mock feed that can be stopped and started again by the engine watchdog."""
+
+    def __init__(self, batches: list[list[tuple[datetime, dict, dict]]], delay: float = 0.01):
+        self.batches = batches
+        self.delay = delay
+        self._running = False
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._producer_task: asyncio.Task | None = None
+        self.start_count = 0
+        self.stop_count = 0
+
+    async def start(self) -> None:
+        self._running = True
+        self._queue = asyncio.Queue()
+        batch_index = min(self.start_count, len(self.batches) - 1)
+        batch = self.batches[batch_index] if self.batches else []
+        self.start_count += 1
+
+        async def producer() -> None:
+            for timestamp, data, context in batch:
+                if not self._running:
+                    return
+                await asyncio.sleep(self.delay)
+                await self._queue.put((timestamp, data, context))
+
+        self._producer_task = asyncio.create_task(producer())
+
+    def stop(self) -> None:
+        self.stop_count += 1
+        self._running = False
+        if self._producer_task and not self._producer_task.done():
+            self._producer_task.cancel()
+        try:
+            self._queue.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
+
+    def __aiter__(self) -> AsyncIterator[tuple[datetime, dict[str, dict], dict]]:
+        return self
+
+    async def __anext__(self) -> tuple[datetime, dict[str, dict], dict]:
+        item = await self._queue.get()
+        if item is None:
+            raise StopAsyncIteration
+        return item
 
 
 # Check protocol compliance
@@ -466,6 +515,112 @@ async def test_stats_property():
     assert stats["last_bar_time"] == datetime(2024, 1, 1, 9, 31)
 
 
+def test_runtime_status_reports_feed_silence_for_open_equity_session():
+    """Test runtime_status flags open-session feed silence."""
+    strategy = RecordingStrategy()
+    broker = MockAsyncBroker()
+    broker._connected = True
+    feed = MockDataFeed([])
+    feed._stock_symbols = ["AAPL"]
+
+    engine = LiveEngine(strategy, broker, feed, feed_silence_seconds=30.0)
+    engine._running = True
+    now = datetime(2024, 1, 2, 15, 0, tzinfo=UTC)
+    engine._last_bar_received_at = now - timedelta(seconds=45)
+
+    status = engine.runtime_status(now=now)
+
+    assert status["session_state"] == "open"
+    assert status["health"] == "feed_silent"
+    assert status["last_bar_age_seconds"] == 45.0
+
+
+@pytest.mark.asyncio
+async def test_watchdog_auto_recovers_after_feed_silence():
+    """Test watchdog restarts broker/feed after a feed-silent event."""
+    strategy = RecordingStrategy()
+    broker = MockAsyncBroker()
+    feed = RecoverableFeed(
+        [
+            [(datetime(2024, 1, 1, 9, 30), {"AAPL": {"close": 150.0}}, {})],
+            [(datetime(2024, 1, 1, 9, 31), {"AAPL": {"close": 151.0}}, {})],
+        ],
+        delay=0.01,
+    )
+    health_events: list[str] = []
+
+    engine = LiveEngine(
+        strategy,
+        broker,
+        feed,
+        feed_silence_seconds=0.05,
+        watchdog_poll_seconds=0.01,
+        auto_recover=True,
+        recovery_cooldown_seconds=0.01,
+        max_recovery_attempts=1,
+        on_health_change=lambda health, status: health_events.append(health),
+    )
+    await engine.connect()
+
+    async def stop_after_recovery() -> None:
+        while len(strategy.on_data_calls) < 2:
+            await asyncio.sleep(0.01)
+        await engine.stop()
+
+    await asyncio.wait_for(asyncio.gather(engine.run(), stop_after_recovery()), timeout=1.0)
+
+    assert len(strategy.on_data_calls) >= 2
+    assert feed.start_count >= 2
+    assert engine.stats["recovery_attempts"] == 1
+    assert "feed_silent" in health_events
+
+
+@pytest.mark.asyncio
+async def test_watchdog_halts_when_unhealthy_without_auto_recover():
+    """Test watchdog stops the engine when halt_on_unhealthy is enabled."""
+    strategy = RecordingStrategy()
+    broker = MockAsyncBroker()
+    feed = RecoverableFeed(
+        [[(datetime(2024, 1, 1, 9, 30), {"AAPL": {"close": 150.0}}, {})]],
+        delay=0.01,
+    )
+    feed._stock_symbols = ["AAPL"]
+
+    engine = LiveEngine(
+        strategy,
+        broker,
+        feed,
+        feed_silence_seconds=0.05,
+        watchdog_poll_seconds=0.01,
+        halt_on_unhealthy=True,
+    )
+    await engine.connect()
+    await asyncio.wait_for(engine.run(), timeout=1.0)
+
+    assert len(strategy.on_data_calls) == 1
+    assert feed.start_count == 1
+    assert engine.stats["health"] == "stopped"
+
+
+def test_runtime_status_reports_market_closed_idle_state():
+    """Test runtime_status distinguishes closed markets from feed failure."""
+    strategy = RecordingStrategy()
+    broker = MockAsyncBroker()
+    broker._connected = True
+    feed = MockDataFeed([])
+    feed._stock_symbols = ["AAPL"]
+
+    engine = LiveEngine(strategy, broker, feed, feed_silence_seconds=30.0)
+    engine._running = True
+    now = datetime(2024, 1, 6, 18, 0, tzinfo=UTC)
+
+    status = engine.runtime_status(now=now)
+
+    assert status["session_state"] == "closed"
+    assert status["health"] == "idle_market_closed"
+    assert status["next_session_boundary"] is not None
+
+
 @pytest.mark.asyncio
 async def test_run_without_connect_raises():
     """Test run() raises if connect() not called first."""
@@ -547,3 +702,5 @@ async def test_shadow_mode_end_to_end_uses_virtual_portfolio(tmp_path):
     assert broker.submit_calls == 0
     assert virtual_position is not None
     assert virtual_position.quantity == 10
+    assert virtual_position.entry_price == 150.0
+    assert virtual_position.current_price == 151.0

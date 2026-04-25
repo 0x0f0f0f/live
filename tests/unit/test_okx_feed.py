@@ -579,3 +579,82 @@ class TestOKXFundingFeedPollLoop:
 
             # Error causes loop to exit after first call
             assert call_count == 1
+
+
+@pytest.mark.asyncio
+class TestOKXFundingFeedMinuteBars:
+    """Tests specific to 1-minute candle support."""
+
+    async def test_fetch_ohlcv_minute_bars_use_okx_1m_param(self):
+        feed = OKXFundingFeed(symbols=["BTC-USDT-SWAP"], timeframe="1m")
+
+        ts_ms = int(datetime(2024, 1, 1, 12, 34, 0, tzinfo=UTC).timestamp() * 1000)
+        response_data = {
+            "code": "0",
+            "data": [
+                [str(ts_ms + 60000), "45000", "45100", "44900", "45050", "10", "0", "0", "0"],
+                [str(ts_ms), "44900", "45000", "44850", "44950", "20", "0", "0", "1"],
+            ],
+        }
+
+        class CapturingClient(MockHttpxAsyncClient):
+            def __init__(self):
+                super().__init__([MockHttpxResponse(response_data)])
+                self.last_params = None
+
+            async def _get(self, url: str, params: dict | None = None):
+                self.last_params = params
+                return await super()._get(url, params=params)
+
+        mock_client = CapturingClient()
+        feed._client = mock_client
+
+        result = await feed._fetch_latest_ohlcv("BTC-USDT-SWAP")
+
+        assert mock_client.last_params == {
+            "instId": "BTC-USDT-SWAP",
+            "bar": "1m",
+            "limit": "2",
+        }
+        assert result is not None
+        timestamp, bar_data = result
+        assert timestamp == datetime(2024, 1, 1, 12, 34, 0, tzinfo=UTC)
+        assert timestamp.second == 0
+        assert timestamp.microsecond == 0
+        assert bar_data["close"] == 44950.0
+
+    async def test_fetch_and_emit_minute_bar_keeps_funding_context(self):
+        feed = OKXFundingFeed(symbols=["BTC-USDT-SWAP"], timeframe="1m")
+
+        ts_ms = int(datetime(2024, 1, 1, 12, 35, 0, tzinfo=UTC).timestamp() * 1000)
+        ohlcv_response = {
+            "code": "0",
+            "data": [
+                [str(ts_ms + 60000), "45000", "45100", "44900", "45050", "10", "0", "0", "0"],
+                [str(ts_ms), "44900", "45000", "44850", "44950", "20", "0", "0", "1"],
+            ],
+        }
+        funding_response = {
+            "code": "0",
+            "data": [
+                {
+                    "fundingRate": "0.0001",
+                    "nextFundingRate": "0.0002",
+                    "nextFundingTime": str(ts_ms + 8 * 60 * 60 * 1000),
+                }
+            ],
+        }
+
+        mock_client = MockHttpxAsyncClient(
+            [MockHttpxResponse(ohlcv_response), MockHttpxResponse(funding_response)]
+        )
+        feed._client = mock_client
+
+        await feed._fetch_and_emit()
+        timestamp, data, context = await asyncio.wait_for(feed._queue.get(), timeout=1.0)
+
+        assert timestamp == datetime(2024, 1, 1, 12, 35, 0, tzinfo=UTC)
+        assert timestamp.second == 0
+        assert data["BTC-USDT-SWAP"]["close"] == 44950.0
+        assert context["BTC-USDT-SWAP"]["funding_rate"] == 0.0001
+        assert context["BTC-USDT-SWAP"]["next_funding_rate"] == 0.0002

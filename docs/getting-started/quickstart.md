@@ -89,6 +89,9 @@ feed = BarAggregator(raw_feed, bar_size_minutes=1, flush_timeout_seconds=2.0)
 ## Next Steps
 
 - [Installation](installation.md)
+- [Risk Controls](../user-guide/risk.md)
+- [CLI](../user-guide/cli.md)
+- [Examples](../user-guide/examples.md)
+- [Operator Guide](../user-guide/operator-guide.md)
 - [Brokers](../user-guide/brokers.md)
 - [Data Feeds](../user-guide/feeds.md)
-- [Risk Controls](../user-guide/risk.md)

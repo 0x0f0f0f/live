@@ -7,11 +7,10 @@
 
 ## Broker Model
 
-The raw broker implementations are asynchronous. They implement `AsyncBrokerProtocol` and are meant
-to be used by `LiveEngine` and `SafeBroker`.
+The raw broker implementations are asynchronous and satisfy `AsyncBrokerProtocol`. In normal usage they sit behind `SafeBroker`, and strategies interact with a synchronous broker wrapper created by `LiveEngine`.
 
-- Strategy code uses synchronous broker calls such as `broker.get_position(...)`
-- Raw broker instances use async methods such as `await broker.get_cash_async()`
+- Strategy code uses synchronous calls such as `broker.get_position(...)` and `broker.submit_order(...)`
+- Infrastructure code uses async methods such as `await broker.get_cash_async()`
 
 ## Interactive Brokers
 
@@ -20,8 +19,9 @@ from ml4t.live import IBBroker
 
 broker = IBBroker(
     host="127.0.0.1",
-    port=7497,  # paper
+    port=7497,  # paper TWS
     client_id=1,
+    account=None,
 )
 
 await broker.connect()
@@ -31,7 +31,8 @@ await broker.connect()
 
 - `7497` is the usual TWS paper port
 - `7496` is the usual TWS live port
-- You must have TWS or IB Gateway running with API access enabled
+- `4002` and `4001` are the usual paper/live IB Gateway ports
+- TWS or IB Gateway must be running with API access enabled before you connect
 
 ## Alpaca
 
@@ -49,9 +50,8 @@ await broker.connect()
 
 ### Notes
 
-- `paper=True` is the safe default
-- The broker maintains positions and pending orders internally from Alpaca account state and trade
-  updates
+- `paper=True` is the safe default and should stay on until you are ready for live deployment
+- The broker tracks positions and pending orders from Alpaca account state plus trade-update callbacks
 
 ## Recommended Wrapper
 
@@ -98,8 +98,7 @@ await broker.disconnect()
 
 ## Error Handling
 
-Broker connection and order failures surface as standard Python exceptions, typically
-`RuntimeError`, broker SDK exceptions, or `RiskLimitError` when wrapped by `SafeBroker`.
+Broker connection and order failures surface as standard Python exceptions, broker-SDK exceptions, or `RiskLimitError` when wrapped by `SafeBroker`.
 
 ```python
 from ml4t.live import RiskLimitError

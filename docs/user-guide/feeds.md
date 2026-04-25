@@ -1,15 +1,7 @@
 # Data Feeds
 
-`ml4t-live` supports multiple live and replay data sources through `DataFeedProtocol`.
-
-Each feed yields:
-
-- `timestamp`
-- `data`
-- `context`
-
-where `data` is typically shaped like `{symbol: {"open", "high", "low", "close", "volume"}}` for
-bar feeds or `{symbol: {"price", "size"}}` for tick-style feeds.
+`ml4t-live` exposes five primary feed classes plus `BarAggregator` for resampling tick-style feeds.
+Each feed yields `(timestamp, data, context)` tuples through `DataFeedProtocol`.
 
 ## AlpacaDataFeed
 
@@ -25,9 +17,9 @@ feed = AlpacaDataFeed(
 )
 ```
 
-## IBDataFeed
+Use this feed for Alpaca-native stocks and crypto. Stock symbols and `.../USD` crypto symbols can be mixed in one feed. The feed itself does not implement a standalone reconnect loop; use `LiveEngine(auto_recover=True)` if you want watchdog-driven restart behavior.
 
-`IBDataFeed` uses an existing connected IB session:
+## IBDataFeed
 
 ```python
 from ml4t.live import IBBroker, IBDataFeed
@@ -35,10 +27,16 @@ from ml4t.live import IBBroker, IBDataFeed
 broker = IBBroker(port=7497)
 await broker.connect()
 
-feed = IBDataFeed(broker.ib, symbols=["SPY", "QQQ"])
+feed = IBDataFeed(
+    broker.ib,
+    symbols=["SPY", "QQQ"],
+    exchange="SMART",
+    currency="USD",
+    tick_throttle_ms=1000,
+)
 ```
 
-This feed emits tick-style updates. Wrap it in `BarAggregator` if your strategy expects bars.
+`IBDataFeed` emits tick-style updates shaped like `{symbol: {"price", "size"}}`. Wrap it in `BarAggregator` if your strategy expects OHLCV bars. The feed does not own a reconnect loop; watchdog-driven stop/restart belongs in `LiveEngine` when enabled.
 
 ## DataBentoFeed
 
@@ -80,7 +78,7 @@ feed = CryptoFeed(
 )
 ```
 
-This feed uses `ccxt` or `ccxt.pro` depending on availability.
+`CryptoFeed` uses `ccxt` or `ccxt.pro` depending on availability and supports both trade streaming and OHLCV streaming.
 
 ## OKXFundingFeed
 
@@ -89,12 +87,12 @@ from ml4t.live import OKXFundingFeed
 
 feed = OKXFundingFeed(
     symbols=["BTC-USDT-SWAP", "ETH-USDT-SWAP"],
-    timeframe="1H",
-    poll_interval_seconds=60.0,
+    timeframe="1m",  # also supports "1H", "4H", and "1D"
+    poll_interval_seconds=5.0,
 )
 ```
 
-This feed combines OHLCV bars with funding-rate context for perpetual futures strategies.
+`OKXFundingFeed` combines OHLCV bars from `/api/v5/market/candles` with funding-rate context from `/api/v5/public/funding-rate`. Minute granularity is supported, and emitted timestamps align to UTC minute boundaries.
 
 ## BarAggregator
 
@@ -110,7 +108,7 @@ feed = BarAggregator(
 )
 ```
 
-Optional filtering:
+Optional symbol filtering:
 
 ```python
 feed = BarAggregator(raw_feed, bar_size_minutes=5, assets=["SPY", "QQQ"])
@@ -124,13 +122,13 @@ await engine.connect()
 await engine.run()
 ```
 
-`LiveEngine.connect()` starts the feed for you. You do not need to call `feed.start()` separately in
-the normal engine flow.
+`LiveEngine.connect()` starts the feed for you, so normal engine usage does not require a manual `feed.start()` call. If you configure `auto_recover=True`, the engine watchdog can also stop and restart the broker/feed pair after `feed_silent` or `broker_disconnected` events.
 
 ## Choosing a Feed
 
-- Use `AlpacaDataFeed` for Alpaca-native stocks and crypto
-- Use `IBDataFeed` when IB is your broker and you want direct market data from TWS/Gateway
-- Use `DataBentoFeed` for replay and institutional market-data workflows
-- Use `CryptoFeed` for exchange-agnostic crypto streaming
-- Use `OKXFundingFeed` for perpetual swap strategies that depend on funding-rate context
+- Use `AlpacaDataFeed` for Alpaca-native stocks and crypto.
+- Use `IBDataFeed` for direct market data from TWS or IB Gateway.
+- Use `DataBentoFeed` for replay or institutional market-data workflows.
+- Use `CryptoFeed` for exchange-agnostic crypto streaming through CCXT.
+- Use `OKXFundingFeed` for perpetual-swap strategies that depend on funding-rate context.
+- Use `BarAggregator` when your upstream feed is tick-oriented but your strategy expects bars.

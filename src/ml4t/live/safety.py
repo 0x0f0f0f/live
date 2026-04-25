@@ -17,8 +17,8 @@ import json
 import logging
 import os
 import time
-from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -178,6 +178,9 @@ class RiskState:
     daily_loss: float = 0.0  # Cumulative daily loss
     orders_placed: int = 0  # Orders placed today
     high_water_mark: float = 0.0  # Session high equity
+    session_start_equity: float | None = None  # Baseline for daily loss checks
+    persisted_positions: dict[str, float] = field(default_factory=dict)
+    persisted_pending_orders: list[dict[str, Any]] = field(default_factory=list)
     kill_switch_activated: bool = False  # Was kill switch triggered?
     kill_switch_reason: str = ""  # Why?
 
@@ -199,7 +202,7 @@ class RiskState:
         Returns:
             Dictionary with all fields
         """
-        return {
+        data = {
             "date": self.date,
             "daily_loss": self.daily_loss,
             "orders_placed": self.orders_placed,
@@ -207,6 +210,13 @@ class RiskState:
             "kill_switch_activated": self.kill_switch_activated,
             "kill_switch_reason": self.kill_switch_reason,
         }
+        if self.session_start_equity is not None:
+            data["session_start_equity"] = self.session_start_equity
+        if self.persisted_positions:
+            data["persisted_positions"] = self.persisted_positions
+        if self.persisted_pending_orders:
+            data["persisted_pending_orders"] = self.persisted_pending_orders
+        return data
 
     @staticmethod
     def save_atomic(state: "RiskState", filepath: str) -> None:
@@ -259,6 +269,15 @@ class RiskState:
             RiskState with today's date and default values
         """
         return RiskState(date=datetime.now().strftime("%Y-%m-%d"))
+
+
+@dataclass
+class MarketSnapshot:
+    """Latest known market reference for an asset."""
+
+    timestamp: datetime
+    observed_at: datetime
+    price: float
 
 
 class VirtualPortfolio:
@@ -508,6 +527,10 @@ class SafeBroker:
         # Duplicate detection
         self._recent_orders: list[tuple[float, str, float]] = []  # (time, asset, qty)
 
+        # Latest market reference per asset, populated by LiveEngine
+        self._latest_market_data: dict[str, MarketSnapshot] = {}
+        self._last_reconciliation_report: dict[str, Any] | None = None
+
         # NEW: VirtualPortfolio for shadow mode (Gemini v2 fix)
         self._virtual_portfolio = VirtualPortfolio(initial_cash=100_000.0)
 
@@ -544,6 +567,11 @@ class SafeBroker:
     def pending_orders(self) -> list[Order]:
         """Get pending orders."""
         return self._broker.pending_orders  # type: ignore[attr-defined]
+
+    @property
+    def reconciliation_report(self) -> dict[str, Any] | None:
+        """Return the latest startup reconciliation report."""
+        return self._last_reconciliation_report
 
     @property
     def is_connected(self) -> bool:
@@ -660,25 +688,31 @@ class SafeBroker:
         # 2. Asset check
         self._check_asset(asset)
 
-        # 3. Duplicate check
+        # 3. Fresh market data required for live risk checks
+        self._check_data_staleness(asset)
+
+        # 4. Daily loss check
+        await self._check_daily_loss()
+
+        # 5. Duplicate check
         self._check_duplicate(asset, float(quantity))
 
-        # 4. Rate limit
+        # 6. Rate limit
         self._check_rate_limit()
 
-        # 5. Order size limits
+        # 7. Order size limits
         price = await self._estimate_price(asset, limit_price)
         order_value = abs(quantity) * price
         self._check_order_limits(quantity, order_value)
 
-        # 6. Position limits
+        # 8. Position limits
         await self._check_position_limits(asset, quantity, order_value, side)
 
-        # 7. Fat finger check (limit orders)
+        # 9. Fat finger check (limit orders)
         if limit_price and order_type in (OrderType.LIMIT, OrderType.STOP_LIMIT):
             await self._check_price_deviation(asset, limit_price)
 
-        # 8. Drawdown check (may activate kill switch)
+        # 10. Drawdown check (may activate kill switch)
         await self._check_drawdown()
 
         # === Shadow Mode (Gemini v2 fix: use VirtualPortfolio) ===
@@ -708,6 +742,7 @@ class SafeBroker:
 
             # Update state
             self._state.orders_placed += 1
+            self._refresh_state_snapshot_from_cache()
             self._prune_history()  # Memory leak fix
             self._save_state()
 
@@ -722,12 +757,141 @@ class SafeBroker:
         # Update state
         self._state.orders_placed += 1
         self._recent_orders.append((time.time(), asset, float(quantity)))
+        self._refresh_state_snapshot_from_cache()
         self._prune_history()  # Memory leak fix
         self._save_state()
 
         return order
 
     # === Risk Check Methods ===
+
+    def _record_market_data(
+        self,
+        timestamp: datetime,
+        data: dict[str, Any],
+        context: dict[str, Any],
+    ) -> None:
+        """Cache the latest market reference for each asset in a feed update."""
+        normalized_timestamp = self._normalize_timestamp(timestamp)
+        observed_at = datetime.now(UTC)
+        latest_prices: dict[str, float] = {}
+        get_position = getattr(self._broker, "get_position", None)
+
+        for asset, asset_data in data.items():
+            if not isinstance(asset_data, dict):
+                continue
+
+            asset_key = asset.upper()
+            asset_context = context.get(asset, {}) if isinstance(context, dict) else {}
+            if not isinstance(asset_context, dict):
+                asset_context = {}
+
+            price = self._extract_reference_price(asset_data, asset_context)
+            if price is None:
+                continue
+
+            self._latest_market_data[asset_key] = MarketSnapshot(
+                timestamp=normalized_timestamp,
+                observed_at=observed_at,
+                price=price,
+            )
+            latest_prices[asset_key] = price
+
+            if callable(get_position):
+                position = get_position(asset_key)
+                if position is not None:
+                    position.current_price = price
+
+        if latest_prices:
+            self._virtual_portfolio.update_prices(latest_prices)
+
+    def _normalize_timestamp(self, timestamp: datetime) -> datetime:
+        """Normalize feed timestamps to UTC for freshness checks."""
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=UTC)
+        return timestamp.astimezone(UTC)
+
+    def _extract_reference_price(
+        self, asset_data: dict[str, Any], asset_context: dict[str, Any]
+    ) -> float | None:
+        """Extract a tradeable reference price from feed payloads."""
+        for key in ("close", "price"):
+            value = asset_data.get(key)
+            if value is None:
+                continue
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                return price
+
+        bid = asset_data.get("bid")
+        ask = asset_data.get("ask")
+        if bid is None:
+            bid = asset_context.get("bid")
+        if ask is None:
+            ask = asset_context.get("ask")
+
+        try:
+            if bid is not None and ask is not None:
+                bid_value = float(bid)
+                ask_value = float(ask)
+                if bid_value > 0 and ask_value > 0:
+                    return (bid_value + ask_value) / 2
+        except (TypeError, ValueError):
+            pass
+
+        for value in (bid, ask, asset_data.get("open")):
+            if value is None:
+                continue
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                return price
+
+        return None
+
+    def _get_market_snapshot(self, asset: str) -> MarketSnapshot | None:
+        """Return the latest cached market snapshot for an asset."""
+        return self._latest_market_data.get(asset.upper())
+
+    def _check_data_staleness(self, asset: str) -> None:
+        """Reject orders when the latest known market data is missing or stale."""
+        snapshot = self._get_market_snapshot(asset)
+        if snapshot is None:
+            raise RiskLimitError(f"No market data available for {asset}")
+
+        now = datetime.now(UTC)
+        age_seconds = max(0.0, (now - snapshot.observed_at).total_seconds())
+
+        if age_seconds > self.config.max_data_staleness_seconds:
+            raise RiskLimitError(
+                f"Stale market data for {asset}: {age_seconds:.1f}s old exceeds "
+                f"max {self.config.max_data_staleness_seconds:.1f}s"
+            )
+
+    async def _check_daily_loss(self) -> None:
+        """Reject new orders when the daily-loss limit has been breached."""
+        try:
+            current_equity = await self.get_account_value_async()
+        except Exception:
+            return
+
+        if self._state.session_start_equity is None:
+            self._state.session_start_equity = current_equity
+
+        daily_loss = max(0.0, self._state.session_start_equity - current_equity)
+        self._state.daily_loss = daily_loss
+
+        if daily_loss > self.config.max_daily_loss:
+            reason = (
+                f"Daily loss ${daily_loss:,.2f} exceeds max ${self.config.max_daily_loss:,.2f}"
+            )
+            self._activate_kill_switch(reason)
+            raise RiskLimitError(reason)
 
     def _check_asset(self, asset: str) -> None:
         """Check if asset is allowed.
@@ -858,17 +1022,25 @@ class SafeBroker:
         Raises:
             RiskLimitError: If price deviation exceeds limit
         """
-        pos = self.get_position(asset)
-        if pos and pos.current_price:
-            market_price = pos.current_price
-            deviation = abs(limit_price - market_price) / market_price
+        snapshot = self._get_market_snapshot(asset)
+        market_price = snapshot.price if snapshot is not None else None
 
-            if deviation > self.config.max_price_deviation_pct:
-                raise RiskLimitError(
-                    f"Price deviation {deviation:.1%} exceeds max "
-                    f"{self.config.max_price_deviation_pct:.1%}. "
-                    f"Limit: ${limit_price:.2f}, Market: ${market_price:.2f}"
-                )
+        if market_price is None:
+            pos = self.get_position(asset)
+            if pos and pos.current_price:
+                market_price = pos.current_price
+
+        if market_price is None:
+            raise RiskLimitError(f"No market data available for {asset}")
+
+        deviation = abs(limit_price - market_price) / market_price
+
+        if deviation > self.config.max_price_deviation_pct:
+            raise RiskLimitError(
+                f"Price deviation {deviation:.1%} exceeds max "
+                f"{self.config.max_price_deviation_pct:.1%}. "
+                f"Limit: ${limit_price:.2f}, Market: ${market_price:.2f}"
+            )
 
     async def _check_drawdown(self) -> None:
         """Check drawdown and activate kill switch if exceeded.
@@ -906,10 +1078,18 @@ class SafeBroker:
         """
         if limit_price:
             return limit_price
+
+        snapshot = self._get_market_snapshot(asset)
+        if snapshot is not None:
+            return snapshot.price
+
         pos = self.get_position(asset)
         if pos and pos.current_price:
             return pos.current_price
-        return pos.entry_price if pos else 100.0  # Fallback
+        if pos:
+            return pos.entry_price
+
+        raise RiskLimitError(f"No market data available for {asset}")
 
     # === Kill Switch ===
 
@@ -977,6 +1157,7 @@ class SafeBroker:
                     state.date = today
                     state.daily_loss = 0.0
                     state.orders_placed = 0
+                    state.session_start_equity = None
                     # Keep kill switch state - must be manually reset!
 
                 return state
@@ -996,7 +1177,7 @@ class SafeBroker:
             tmp_path = path.with_suffix(".json.tmp")
 
             # Write to temp file
-            tmp_path.write_text(json.dumps(asdict(self._state), indent=2))
+            tmp_path.write_text(json.dumps(self._state.to_dict(), indent=2))
 
             # Atomic replace (POSIX and Windows)
             os.replace(tmp_path, path)
@@ -1018,14 +1199,202 @@ class SafeBroker:
         max_age = max(self.config.dedup_window_seconds, 3600)
         self._recent_orders = [(t, a, q) for t, a, q in self._recent_orders if now - t < max_age]
 
+
+    def _serialize_positions(self, positions: dict[str, Position]) -> dict[str, float]:
+        """Serialize positions into a compact persisted snapshot."""
+        snapshot: dict[str, float] = {}
+        for asset, position in positions.items():
+            try:
+                quantity = float(position.quantity)
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if quantity != 0:
+                snapshot[asset.upper()] = quantity
+        return dict(sorted(snapshot.items()))
+
+    def _serialize_pending_orders(self, orders: list[Order]) -> list[dict[str, Any]]:
+        """Serialize pending orders for persistence and reconciliation."""
+        snapshot: list[dict[str, Any]] = []
+        for order in orders:
+            try:
+                entry = {
+                    "asset": order.asset.upper(),
+                    "side": order.side.value,
+                    "quantity": float(order.quantity),
+                    "order_type": order.order_type.value,
+                }
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if order.limit_price is not None:
+                entry["limit_price"] = float(order.limit_price)
+            if order.stop_price is not None:
+                entry["stop_price"] = float(order.stop_price)
+            snapshot.append(entry)
+        snapshot.sort(key=self._pending_order_fingerprint)
+        return snapshot
+
+    def _pending_order_fingerprint(self, order: dict[str, Any]) -> tuple[Any, ...]:
+        """Return a stable fingerprint for a serialized pending order."""
+        return (
+            order.get("asset", ""),
+            order.get("side", ""),
+            float(order.get("quantity", 0.0)),
+            order.get("order_type", ""),
+            order.get("limit_price"),
+            order.get("stop_price"),
+        )
+
+    def _set_state_snapshot(
+        self,
+        positions: dict[str, Position],
+        pending_orders: list[Order],
+    ) -> None:
+        """Persist the latest known broker snapshot into risk state."""
+        self._state.persisted_positions = self._serialize_positions(positions)
+        self._state.persisted_pending_orders = self._serialize_pending_orders(pending_orders)
+
+    def _refresh_state_snapshot_from_cache(self) -> None:
+        """Refresh persisted snapshots from the best local broker cache available."""
+        if self.config.shadow_mode:
+            self._set_state_snapshot(self._virtual_portfolio.positions, [])
+            return
+
+        positions = getattr(self._broker, "positions", {})
+        pending_orders = getattr(self._broker, "pending_orders", [])
+        if isinstance(positions, dict) and isinstance(pending_orders, list):
+            self._set_state_snapshot(positions, pending_orders)
+
+    async def _capture_runtime_snapshot_async(self) -> tuple[dict[str, Position], list[Order]]:
+        """Capture current positions and pending orders from the live broker."""
+        if self.config.shadow_mode:
+            return self._virtual_portfolio.positions, []
+
+        try:
+            positions = await self._broker.get_positions_async()
+        except Exception:
+            positions = getattr(self._broker, "positions", {})
+
+        try:
+            pending_orders = await self._broker.get_pending_orders_async()
+        except Exception:
+            pending_orders = getattr(self._broker, "pending_orders", [])
+
+        if not isinstance(positions, dict):
+            positions = {}
+        if not isinstance(pending_orders, list):
+            pending_orders = []
+        return positions, pending_orders
+
+    def _build_reconciliation_report(
+        self,
+        live_positions: dict[str, Position],
+        live_pending_orders: list[Order],
+    ) -> dict[str, Any]:
+        """Compare persisted broker state against the live broker snapshot."""
+        persisted_positions = dict(self._state.persisted_positions)
+        persisted_pending_orders = list(self._state.persisted_pending_orders)
+        live_position_snapshot = self._serialize_positions(live_positions)
+        live_pending_snapshot = self._serialize_pending_orders(live_pending_orders)
+
+        missing_positions = {
+            asset: quantity
+            for asset, quantity in persisted_positions.items()
+            if asset not in live_position_snapshot
+        }
+        unexpected_positions = {
+            asset: quantity
+            for asset, quantity in live_position_snapshot.items()
+            if asset not in persisted_positions
+        }
+        quantity_mismatches = {
+            asset: {
+                "persisted": persisted_positions[asset],
+                "live": live_position_snapshot[asset],
+            }
+            for asset in sorted(persisted_positions.keys() & live_position_snapshot.keys())
+            if abs(persisted_positions[asset] - live_position_snapshot[asset]) > 1e-9
+        }
+
+        live_pending_lookup = {
+            self._pending_order_fingerprint(order): order for order in live_pending_snapshot
+        }
+        persisted_pending_lookup = {
+            self._pending_order_fingerprint(order): order for order in persisted_pending_orders
+        }
+        missing_pending_orders = [
+            persisted_pending_lookup[key]
+            for key in sorted(persisted_pending_lookup.keys() - live_pending_lookup.keys())
+        ]
+        unexpected_pending_orders = [
+            live_pending_lookup[key]
+            for key in sorted(live_pending_lookup.keys() - persisted_pending_lookup.keys())
+        ]
+
+        clean = not any(
+            (
+                missing_positions,
+                unexpected_positions,
+                quantity_mismatches,
+                missing_pending_orders,
+                unexpected_pending_orders,
+            )
+        )
+        return {
+            "checked_at": datetime.now(UTC).isoformat(),
+            "clean": clean,
+            "persisted_positions": persisted_positions,
+            "live_positions": live_position_snapshot,
+            "missing_positions": missing_positions,
+            "unexpected_positions": unexpected_positions,
+            "quantity_mismatches": quantity_mismatches,
+            "persisted_pending_orders": persisted_pending_orders,
+            "live_pending_orders": live_pending_snapshot,
+            "missing_pending_orders": missing_pending_orders,
+            "unexpected_pending_orders": unexpected_pending_orders,
+        }
+
+    def _log_reconciliation_report(self, report: dict[str, Any]) -> None:
+        """Log a concise startup reconciliation summary."""
+        if report["clean"]:
+            logger.info("SafeBroker reconciliation clean")
+            return
+
+        issues: list[str] = []
+        if report["missing_positions"]:
+            issues.append(f"missing_positions={sorted(report['missing_positions'])}")
+        if report["unexpected_positions"]:
+            issues.append(f"unexpected_positions={sorted(report['unexpected_positions'])}")
+        if report["quantity_mismatches"]:
+            issues.append(f"quantity_mismatches={sorted(report['quantity_mismatches'])}")
+        if report["missing_pending_orders"]:
+            issues.append(
+                f"missing_pending_orders={len(report['missing_pending_orders'])}"
+            )
+        if report["unexpected_pending_orders"]:
+            issues.append(
+                f"unexpected_pending_orders={len(report['unexpected_pending_orders'])}"
+            )
+        logger.warning("SafeBroker reconciliation mismatch: %s", ", ".join(issues))
+
     # === Broker Connection Methods (passthrough) ===
 
     async def connect(self) -> None:
-        """Connect to broker."""
+        """Connect to broker and reconcile persisted state."""
         await self._broker.connect()
+        live_positions, live_pending_orders = await self._capture_runtime_snapshot_async()
+        report = self._build_reconciliation_report(live_positions, live_pending_orders)
+        self._last_reconciliation_report = report
+        self._log_reconciliation_report(report)
+        self._set_state_snapshot(live_positions, live_pending_orders)
 
     async def disconnect(self) -> None:
         """Disconnect from broker and save state."""
+        try:
+            live_positions, live_pending_orders = await self._capture_runtime_snapshot_async()
+            self._set_state_snapshot(live_positions, live_pending_orders)
+        except Exception as e:
+            logger.warning(f"Failed to capture broker snapshot during disconnect: {e}")
+            self._refresh_state_snapshot_from_cache()
         self._save_state()
         await self._broker.disconnect()
 

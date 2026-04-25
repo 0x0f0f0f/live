@@ -2,14 +2,14 @@
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+
 - A supported broker or data source for live use
 - `ml4t-backtest` is installed automatically as a package dependency
 
 ## Install From PyPI
 
 ```bash
-pip install ml4t-live
+uv add ml4t-live
 ```
 
 ## Optional Add-Ons
@@ -18,7 +18,7 @@ pip install ml4t-live
 be installed separately if you want `DataBentoFeed`:
 
 ```bash
-pip install databento
+uv add databento
 ```
 
 ## Install From Source

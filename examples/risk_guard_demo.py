@@ -1,0 +1,145 @@
+# ruff: noqa: E402
+"""Show stale-data rejection and daily-loss kill-switch activation.
+
+Purpose:
+    Demonstrate two operational risk guards without an external broker:
+    stale market data blocks new orders, and a daily-loss breach activates the
+    persisted kill switch.
+
+Prerequisites:
+    - `ml4t-live` installed or this repo checked out locally
+
+Expected Output:
+    - One accepted order with fresh data
+    - One stale-data rejection after the market snapshot ages out
+    - One daily-loss rejection with kill_switch=True
+
+Runtime:
+    About 4 seconds. The script exits on its own.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if SRC.exists():
+    sys.path.insert(0, str(SRC))
+
+from ml4t.backtest.types import Order, OrderSide, OrderType, Position
+
+from ml4t.live import LiveRiskConfig, RiskLimitError, SafeBroker
+
+
+class DemoBroker:
+    def __init__(self) -> None:
+        self._connected = False
+        self.positions: dict[str, Position] = {}
+        self.pending_orders: list[Order] = []
+        self.account_value = 100_000.0
+
+    async def connect(self) -> None:
+        self._connected = True
+
+    async def disconnect(self) -> None:
+        self._connected = False
+
+    async def is_connected_async(self) -> bool:
+        return self._connected
+
+    def get_position(self, asset: str) -> Position | None:
+        return self.positions.get(asset)
+
+    async def get_positions_async(self) -> dict[str, Position]:
+        return dict(self.positions)
+
+    async def get_pending_orders_async(self) -> list[Order]:
+        return list(self.pending_orders)
+
+    async def get_position_async(self, asset: str) -> Position | None:
+        return self.positions.get(asset)
+
+    async def get_account_value_async(self) -> float:
+        return self.account_value
+
+    async def get_cash_async(self) -> float:
+        return self.account_value
+
+    async def submit_order_async(
+        self,
+        asset: str,
+        quantity: float,
+        side: OrderSide | None = None,
+        order_type: OrderType = OrderType.MARKET,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        **kwargs: Any,
+    ) -> Order:
+        if side is None:
+            side = OrderSide.BUY if quantity > 0 else OrderSide.SELL
+            quantity = abs(quantity)
+        order = Order(
+            asset=asset,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            created_at=datetime.now(UTC),
+        )
+        self.pending_orders.append(order)
+        return order
+
+    async def cancel_order_async(self, order_id: str) -> bool:
+        return False
+
+    async def close_position_async(self, asset: str) -> Order | None:
+        return None
+
+
+async def main() -> int:
+    state_file = Path(tempfile.gettempdir()) / "ml4t-live-risk-guard-demo-state.json"
+    raw_broker = DemoBroker()
+    safe_broker = SafeBroker(
+        raw_broker,
+        LiveRiskConfig(
+            shadow_mode=False,
+            max_order_value=5_000.0,
+            max_daily_loss=500.0,
+            max_data_staleness_seconds=1.0,
+            state_file=str(state_file),
+        ),
+    )
+    await safe_broker.connect()
+
+    safe_broker._record_market_data(datetime.now(UTC), {"DEMO": {"close": 100.0}}, {})
+    order = await safe_broker.submit_order_async("DEMO", 10)
+    print(f"fresh_data_order: accepted order_type={order.order_type.value}")
+
+    await asyncio.sleep(1.5)
+    try:
+        await safe_broker.submit_order_async("DEMO", 1)
+    except RiskLimitError as exc:
+        print(f"stale_data_block: {exc}")
+
+    safe_broker._record_market_data(datetime.now(UTC), {"DEMO": {"close": 101.0}}, {})
+    raw_broker.account_value = 99_000.0
+    try:
+        await safe_broker.submit_order_async("DEMO", 1)
+    except RiskLimitError as exc:
+        print(f"daily_loss_block: {exc}")
+        print(f"kill_switch_active: {safe_broker._state.kill_switch_activated}")
+
+    await safe_broker.disconnect()
+    state_file.unlink(missing_ok=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(asyncio.run(main()))

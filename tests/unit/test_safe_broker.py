@@ -12,7 +12,7 @@ Tests cover:
 import json
 import tempfile
 import time
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -503,6 +503,68 @@ async def test_estimate_price_uses_current_price(mock_broker, config):
     assert price == 155.0
 
 
+async def test_estimate_price_uses_latest_market_snapshot(mock_broker, config):
+    """Test _estimate_price prefers the latest market snapshot for first entries."""
+    safe = SafeBroker(mock_broker, config)
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 175.0}}, {})
+
+    price = await safe._estimate_price(asset="AAPL", limit_price=None)
+    assert price == 175.0
+
+
+async def test_check_price_deviation_uses_market_snapshot_for_new_position(mock_broker, config):
+    """Test _check_price_deviation works for first-entry orders with market snapshots."""
+    config.max_price_deviation_pct = 0.05
+    safe = SafeBroker(mock_broker, config)
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 100.0}}, {})
+
+    with pytest.raises(RiskLimitError, match="Price deviation"):
+        await safe._check_price_deviation(asset="AAPL", limit_price=110.0)
+
+
+def test_check_data_staleness_requires_market_data(mock_broker, config):
+    """Test _check_data_staleness rejects orders with no market reference."""
+    safe = SafeBroker(mock_broker, config)
+
+    with pytest.raises(RiskLimitError, match="No market data available"):
+        safe._check_data_staleness("AAPL")
+
+
+def test_check_data_staleness_rejects_stale_market_data(mock_broker, config):
+    """Test _check_data_staleness rejects stale observed market data."""
+    config.max_data_staleness_seconds = 30.0
+    safe = SafeBroker(mock_broker, config)
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+    safe._latest_market_data["AAPL"].observed_at -= timedelta(seconds=90)
+
+    with pytest.raises(RiskLimitError, match="Stale market data"):
+        safe._check_data_staleness("AAPL")
+
+
+async def test_check_daily_loss_initializes_session_start_equity(mock_broker, config):
+    """Test _check_daily_loss captures the first session equity baseline."""
+    safe = SafeBroker(mock_broker, config)
+    mock_broker.get_account_value_async = AsyncMock(return_value=100_000.0)
+
+    await safe._check_daily_loss()
+
+    assert safe._state.session_start_equity == 100_000.0
+    assert safe._state.daily_loss == 0.0
+
+
+async def test_check_daily_loss_activates_kill_switch(mock_broker, config):
+    """Test _check_daily_loss enforces the configured daily-loss limit."""
+    safe = SafeBroker(mock_broker, config)
+    safe._state.session_start_equity = 100_000.0
+    mock_broker.get_account_value_async = AsyncMock(return_value=98_500.0)
+
+    with pytest.raises(RiskLimitError, match="Daily loss"):
+        await safe._check_daily_loss()
+
+    assert safe._state.daily_loss == 1_500.0
+    assert safe._state.kill_switch_activated is True
+
+
 # === Kill Switch Tests ===
 
 
@@ -698,6 +760,8 @@ async def test_submit_order_shadow_mode(mock_broker, config):
     config.shadow_mode = True
     safe = SafeBroker(mock_broker, config)
 
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+
     order = await safe.submit_order_async(
         asset="AAPL",
         quantity=10,
@@ -734,6 +798,8 @@ async def test_submit_order_live_mode(mock_broker, config):
     )
     mock_broker.submit_order_async = AsyncMock(return_value=expected_order)
 
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+
     order = await safe.submit_order_async(
         asset="AAPL",
         quantity=10,
@@ -752,6 +818,8 @@ async def test_submit_order_increments_state(mock_broker, config):
 
     initial_count = safe._state.orders_placed
 
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+
     await safe.submit_order_async(asset="AAPL", quantity=10)
 
     assert safe._state.orders_placed == initial_count + 1
@@ -762,11 +830,24 @@ async def test_submit_order_auto_detects_side(mock_broker, config):
     config.shadow_mode = True
     safe = SafeBroker(mock_broker, config)
 
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+
     # Negative quantity should become SELL
     order = await safe.submit_order_async(asset="AAPL", quantity=-10)
 
     assert order.side == OrderSide.SELL
     assert order.quantity == 10  # Absolute value
+
+
+async def test_submit_order_uses_market_price_for_first_entry_limit_checks(mock_broker, config):
+    """Test first-entry risk sizing uses the latest market snapshot rather than a fake fallback."""
+    config.shadow_mode = True
+    config.max_order_value = 1_200.0
+    safe = SafeBroker(mock_broker, config)
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+
+    with pytest.raises(RiskLimitError, match="Order value"):
+        await safe.submit_order_async(asset="AAPL", quantity=10, side=OrderSide.BUY)
 
 
 # === Connection Passthrough Tests ===
@@ -779,6 +860,48 @@ async def test_connect_passthrough(mock_broker, config):
     await safe.connect()
 
     mock_broker.connect.assert_called_once()
+    assert safe.reconciliation_report is not None
+    assert safe.reconciliation_report["clean"] is True
+
+
+async def test_connect_reconciles_startup_state(mock_broker, config):
+    """Test connect reports mismatches between persisted and live broker state."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    state = RiskState(
+        date=today,
+        persisted_positions={"AAPL": 10.0},
+        persisted_pending_orders=[
+            {
+                "asset": "AAPL",
+                "side": "buy",
+                "quantity": 10.0,
+                "order_type": "limit",
+                "limit_price": 150.0,
+            }
+        ],
+    )
+    Path(config.state_file).write_text(json.dumps(state.to_dict(), indent=2))
+    mock_broker.get_positions_async = AsyncMock(
+        return_value={
+            "MSFT": Position(
+                asset="MSFT",
+                quantity=5,
+                entry_price=300.0,
+                entry_time=datetime.now(),
+            )
+        }
+    )
+    mock_broker.get_pending_orders_async = AsyncMock(return_value=[])
+
+    safe = SafeBroker(mock_broker, config)
+    await safe.connect()
+
+    report = safe.reconciliation_report
+    assert report is not None
+    assert report["clean"] is False
+    assert report["missing_positions"] == {"AAPL": 10.0}
+    assert report["unexpected_positions"] == {"MSFT": 5.0}
+    assert len(report["missing_pending_orders"]) == 1
 
 
 async def test_disconnect_saves_state(mock_broker, config):
@@ -786,13 +909,43 @@ async def test_disconnect_saves_state(mock_broker, config):
     safe = SafeBroker(mock_broker, config)
 
     safe._state.orders_placed = 42
+    mock_broker.get_positions_async = AsyncMock(
+        return_value={
+            "AAPL": Position(
+                asset="AAPL",
+                quantity=3,
+                entry_price=150.0,
+                entry_time=datetime.now(),
+            )
+        }
+    )
+    mock_broker.get_pending_orders_async = AsyncMock(
+        return_value=[
+            Order(
+                asset="AAPL",
+                side=OrderSide.BUY,
+                quantity=3,
+                order_type=OrderType.LIMIT,
+                limit_price=149.5,
+                created_at=datetime.now(),
+            )
+        ]
+    )
     await safe.disconnect()
 
-    # State should be saved
     data = json.loads(Path(config.state_file).read_text())
     assert data["orders_placed"] == 42
+    assert data["persisted_positions"] == {"AAPL": 3.0}
+    assert data["persisted_pending_orders"] == [
+        {
+            "asset": "AAPL",
+            "side": "buy",
+            "quantity": 3.0,
+            "order_type": "limit",
+            "limit_price": 149.5,
+        }
+    ]
 
-    # Broker should be disconnected
     mock_broker.disconnect.assert_called_once()
 
 

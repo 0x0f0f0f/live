@@ -5,7 +5,7 @@ Provides real-time market data from Alpaca for stocks and crypto.
 Features:
 - Real-time minute bars (default), quotes, or trades
 - Both stocks and crypto supported
-- Automatic reconnection via alpaca-py
+- Stream lifecycle managed by the Alpaca client; engine watchdog recovery is optional
 - Data buffering with asyncio.Queue
 
 Example:

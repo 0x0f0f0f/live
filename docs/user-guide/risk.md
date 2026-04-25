@@ -1,7 +1,22 @@
 # Risk Controls
 
-`SafeBroker` wraps any async broker with pre-trade risk checks, duplicate-order protection, shadow
-mode, and kill-switch state persistence.
+`SafeBroker` is the pre-trade control layer around a live broker. It validates each order before submission, persists risk state across restarts, and keeps the kill switch sticky until you clear it.
+
+## What Is Enforced Today
+
+At order submission time, `SafeBroker` currently enforces:
+
+- position and exposure caps
+- per-order notional and share limits
+- order-rate limiting and duplicate-order suppression
+- asset allow/block lists
+- price-deviation checks for priced orders
+- stale-data rejection via `max_data_staleness_seconds`
+- daily-loss rejection via `max_daily_loss`
+- drawdown-triggered kill-switch activation via `max_drawdown_pct`
+- shadow-mode execution through `VirtualPortfolio`
+
+The market-price checks now use the latest cached market snapshot from the engine instead of a placeholder fallback for first-entry trades.
 
 ## LiveRiskConfig
 
@@ -22,27 +37,14 @@ config = LiveRiskConfig(
     max_data_staleness_seconds=60,
     dedup_window_seconds=1.0,
     allowed_assets={"SPY", "QQQ"},
+    blocked_assets={"GME"},
     shadow_mode=True,
+    kill_switch_enabled=False,
     state_file=".ml4t_risk_state.json",
 )
 ```
 
-## Shadow Mode
-
-Shadow mode is the recommended starting point:
-
-```python
-safe_broker = SafeBroker(broker, LiveRiskConfig(shadow_mode=True))
-```
-
-In shadow mode:
-
-- risk checks still run
-- orders are marked filled virtually
-- `VirtualPortfolio` tracks positions and cash
-- no real broker order is submitted
-
-## Risk Categories
+## Control Groups
 
 ### Position Limits
 
@@ -56,30 +58,59 @@ In shadow mode:
 - `max_order_value`
 - `max_order_shares`
 - `max_orders_per_minute`
+- `dedup_window_seconds`
 
-### Loss Limits
+### Loss And Safety Limits
 
 - `max_daily_loss`
 - `max_drawdown_pct`
-
-### Trade Safety
-
 - `max_price_deviation_pct`
 - `max_data_staleness_seconds`
-- `dedup_window_seconds`
 - `allowed_assets`
 - `blocked_assets`
 
+### Execution And Persistence
+
+- `shadow_mode`
+- `kill_switch_enabled`
+- `state_file`
+
+## Persisted State
+
+The risk state file persists more than just the kill switch. It now captures:
+
+- current trading date and daily counters
+- daily-loss baseline through `session_start_equity`
+- persisted position and pending-order snapshots from the last clean disconnect
+- kill-switch state and reason
+
+That persisted snapshot is used again on the next `SafeBroker.connect()` to generate the startup reconciliation report.
+
+## Shadow Mode
+
+Shadow mode is the recommended first deployment step:
+
+```python
+safe_broker = SafeBroker(broker, LiveRiskConfig(shadow_mode=True))
+```
+
+In shadow mode:
+
+- all normal risk checks still run
+- orders are marked filled virtually
+- `VirtualPortfolio` tracks positions and cash locally
+- no real broker order is submitted
+
 ## Kill Switch
 
-The kill switch can be activated automatically by drawdown checks or manually:
+The kill switch can be activated manually or by a loss breach:
 
 ```python
 safe_broker.enable_kill_switch("manual halt")
 safe_broker.disable_kill_switch()
 ```
 
-Kill-switch state is persisted in `state_file`, so it survives restarts until manually cleared.
+Kill-switch state is persisted in `state_file`, so it survives process restarts until it is manually cleared.
 
 ## SafeBroker Usage
 
@@ -93,11 +124,13 @@ safe_broker = SafeBroker(
         shadow_mode=True,
         max_position_value=10_000,
         max_order_value=2_500,
+        max_daily_loss=500,
+        max_data_staleness_seconds=60,
     ),
 )
 ```
 
-Inside strategy code, orders are still placed through the normal synchronous broker interface:
+Inside `Strategy.on_data(...)`, order placement stays synchronous because `LiveEngine` passes a thread-safe broker wrapper to the strategy:
 
 ```python
 def on_data(self, timestamp, data, context, broker):
@@ -120,7 +153,8 @@ except RiskLimitError as exc:
 
 ## Recommended Progression
 
-1. Start in shadow mode
-2. Validate order flow and position tracking
-3. Move to paper credentials with conservative limits
-4. Go live only after stable monitoring and manual review
+1. Start in shadow mode.
+2. Validate order flow, virtual positions, and runtime health.
+3. Move to paper credentials with conservative limits.
+4. Check `ml4t-live status` and startup reconciliation before going live.
+5. Increase size only after repeated clean starts and expected fills.

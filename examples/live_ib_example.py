@@ -16,11 +16,11 @@ import asyncio
 import logging
 from datetime import datetime
 
-from ml4t.backtest import Strategy, OrderSide
+from ml4t.backtest import OrderSide, Strategy
 
 from ml4t.live import LiveEngine, LiveRiskConfig
 from ml4t.live.brokers.ib import IBBroker
-from ml4t.live.feeds import IBDataFeed, BarAggregator
+from ml4t.live.feeds import BarAggregator, IBDataFeed
 from ml4t.live.safety import SafeBroker
 
 # Configure logging

@@ -458,7 +458,24 @@ class IBBroker(AsyncBrokerProtocol):
             def cleanup_ib_order(oid: int = ib_order_id) -> None:
                 self._ib_order_map.pop(oid, None)
 
-            asyncio.get_event_loop().call_later(3600, cleanup_ib_order)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = None
+
+            closed = False
+            if loop is not None:
+                is_closed = getattr(loop, "is_closed", None)
+                if callable(is_closed):
+                    result = is_closed()
+                    if isinstance(result, bool):
+                        closed = result
+
+            if loop is not None and not closed:
+                loop.call_later(3600, cleanup_ib_order)
         elif status_str == "Cancelled":
             # Order cancelled - update status and cleanup immediately
             order.status = OrderStatus.CANCELLED
