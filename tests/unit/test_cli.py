@@ -55,7 +55,9 @@ def test_module_symbols_defaults_and_overrides(tmp_path: Path):
 
 def test_status_command_shows_persisted_snapshot(monkeypatch, tmp_path: Path, capsys):
     async def fake_probe() -> BrokerProbeResult:
-        return BrokerProbeResult(status="skipped", detail="disabled", positions={}, pending_orders=[])
+        return BrokerProbeResult(
+            status="skipped", detail="disabled", positions={}, pending_orders=[]
+        )
 
     monkeypatch.setattr("ml4t.live.cli.main._probe_alpaca", fake_probe)
     monkeypatch.setattr("ml4t.live.cli.main._probe_ib", fake_probe)

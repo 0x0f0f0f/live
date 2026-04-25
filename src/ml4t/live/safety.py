@@ -887,9 +887,7 @@ class SafeBroker:
         self._state.daily_loss = daily_loss
 
         if daily_loss > self.config.max_daily_loss:
-            reason = (
-                f"Daily loss ${daily_loss:,.2f} exceeds max ${self.config.max_daily_loss:,.2f}"
-            )
+            reason = f"Daily loss ${daily_loss:,.2f} exceeds max ${self.config.max_daily_loss:,.2f}"
             self._activate_kill_switch(reason)
             raise RiskLimitError(reason)
 
@@ -1199,7 +1197,6 @@ class SafeBroker:
         max_age = max(self.config.dedup_window_seconds, 3600)
         self._recent_orders = [(t, a, q) for t, a, q in self._recent_orders if now - t < max_age]
 
-
     def _serialize_positions(self, positions: dict[str, Position]) -> dict[str, float]:
         """Serialize positions into a compact persisted snapshot."""
         snapshot: dict[str, float] = {}
@@ -1367,13 +1364,9 @@ class SafeBroker:
         if report["quantity_mismatches"]:
             issues.append(f"quantity_mismatches={sorted(report['quantity_mismatches'])}")
         if report["missing_pending_orders"]:
-            issues.append(
-                f"missing_pending_orders={len(report['missing_pending_orders'])}"
-            )
+            issues.append(f"missing_pending_orders={len(report['missing_pending_orders'])}")
         if report["unexpected_pending_orders"]:
-            issues.append(
-                f"unexpected_pending_orders={len(report['unexpected_pending_orders'])}"
-            )
+            issues.append(f"unexpected_pending_orders={len(report['unexpected_pending_orders'])}")
         logger.warning("SafeBroker reconciliation mismatch: %s", ", ".join(issues))
 
     # === Broker Connection Methods (passthrough) ===

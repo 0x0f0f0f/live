@@ -265,9 +265,7 @@ async def _make_feed(feed_name: str, module: ModuleType) -> Any:
         api_key = os.environ.get("ALPACA_API_KEY")
         secret_key = os.environ.get("ALPACA_SECRET_KEY")
         if not api_key or not secret_key:
-            raise RuntimeError(
-                "ALPACA_API_KEY and ALPACA_SECRET_KEY must be set for --feed alpaca"
-            )
+            raise RuntimeError("ALPACA_API_KEY and ALPACA_SECRET_KEY must be set for --feed alpaca")
         data_type = getattr(module, "ALPACA_DATA_TYPE", "bars")
         feed = getattr(module, "ALPACA_FEED", "iex")
         return AlpacaDataFeed(

@@ -222,10 +222,7 @@ class LiveEngine:
                 self._emit_health_transition(status)
                 health = status["health"]
 
-                if (
-                    health in RECOVERABLE_HEALTH_STATES
-                    and self._recovery_requested_reason is None
-                ):
+                if health in RECOVERABLE_HEALTH_STATES and self._recovery_requested_reason is None:
                     if self.auto_recover:
                         self._recovery_requested_reason = health
                         logger.warning(
