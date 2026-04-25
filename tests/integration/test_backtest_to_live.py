@@ -308,6 +308,20 @@ class MockLiveBroker:
 # =============================================================================
 
 
+async def _run_strategy_against_feed(
+    strategy: Strategy,
+    safe_broker: SafeBroker,
+    bar_feed: MockBarFeed,
+) -> None:
+    """Replay bars with the same market-data seeding LiveEngine performs."""
+    loop = asyncio.get_event_loop()
+    wrapped_broker = ThreadSafeBrokerWrapper(safe_broker, loop)
+
+    async for timestamp, data, context in bar_feed:
+        safe_broker._record_market_data(timestamp, data, context)
+        await asyncio.to_thread(strategy.on_data, timestamp, data, context, wrapped_broker)
+
+
 @pytest.mark.asyncio
 async def test_ma_strategy_no_repeat_signals():
     """
@@ -345,13 +359,7 @@ async def test_ma_strategy_no_repeat_signals():
 
     strategy = MATestStrategy(ma_period=10)
 
-    # Run strategy
-    loop = asyncio.get_event_loop()
-    wrapped_broker = ThreadSafeBrokerWrapper(safe_broker, loop)
-
-    async for timestamp, data, context in bar_feed:
-        # Run strategy in thread pool (matches LiveEngine behavior)
-        await asyncio.to_thread(strategy.on_data, timestamp, data, context, wrapped_broker)
+    await _run_strategy_against_feed(strategy, safe_broker, bar_feed)
 
     await bar_feed.stop()
     await mock_broker.disconnect()
@@ -394,12 +402,7 @@ async def test_simple_exit_strategy():
 
     strategy = SimpleExitStrategy()
 
-    loop = asyncio.get_event_loop()
-    wrapped_broker = ThreadSafeBrokerWrapper(safe_broker, loop)
-
-    async for timestamp, data, context in bar_feed:
-        # Run strategy in thread pool (matches LiveEngine behavior)
-        await asyncio.to_thread(strategy.on_data, timestamp, data, context, wrapped_broker)
+    await _run_strategy_against_feed(strategy, safe_broker, bar_feed)
 
     await bar_feed.stop()
     await mock_broker.disconnect()
@@ -443,12 +446,7 @@ async def test_flip_position_strategy():
 
     strategy = FlipPositionStrategy()
 
-    loop = asyncio.get_event_loop()
-    wrapped_broker = ThreadSafeBrokerWrapper(safe_broker, loop)
-
-    async for timestamp, data, context in bar_feed:
-        # Run strategy in thread pool (matches LiveEngine behavior)
-        await asyncio.to_thread(strategy.on_data, timestamp, data, context, wrapped_broker)
+    await _run_strategy_against_feed(strategy, safe_broker, bar_feed)
 
     await bar_feed.stop()
     await mock_broker.disconnect()
@@ -498,12 +496,7 @@ async def test_shadow_mode_prevents_real_orders():
 
     strategy = SimpleExitStrategy()
 
-    loop = asyncio.get_event_loop()
-    wrapped_broker = ThreadSafeBrokerWrapper(safe_broker, loop)
-
-    async for timestamp, data, context in bar_feed:
-        # Run strategy in thread pool (matches LiveEngine behavior)
-        await asyncio.to_thread(strategy.on_data, timestamp, data, context, wrapped_broker)
+    await _run_strategy_against_feed(strategy, safe_broker, bar_feed)
 
     await bar_feed.stop()
     await mock_broker.disconnect()
