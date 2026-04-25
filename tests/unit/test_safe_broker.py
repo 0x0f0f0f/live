@@ -19,7 +19,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
 
-from ml4t.live.safety import LiveRiskConfig, RiskLimitError, RiskState, SafeBroker
+from ml4t.live.safety import (
+    LiveRiskConfig,
+    ReconciliationMismatchError,
+    RiskLimitError,
+    RiskState,
+    SafeBroker,
+)
 
 # === Fixtures ===
 
@@ -37,6 +43,7 @@ def mock_broker():
     broker.get_cash_async = AsyncMock(return_value=50_000.0)
     broker.submit_order_async = AsyncMock()
     broker.cancel_order_async = AsyncMock(return_value=True)
+    broker.replace_order_async = AsyncMock()
     broker.close_position_async = AsyncMock()
     broker.connect = AsyncMock()
     broker.disconnect = AsyncMock()
@@ -904,6 +911,33 @@ async def test_connect_reconciles_startup_state(mock_broker, config):
     assert len(report["missing_pending_orders"]) == 1
 
 
+async def test_connect_blocks_on_mismatch_when_configured(mock_broker, config):
+    """Test startup can fail closed when reconciliation mismatches are detected."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    state = RiskState(date=today, persisted_positions={"AAPL": 10.0})
+    Path(config.state_file).write_text(json.dumps(state.to_dict(), indent=2))
+    config.fail_on_reconciliation_mismatch = True
+    mock_broker.get_positions_async = AsyncMock(return_value={})
+
+    safe = SafeBroker(mock_broker, config)
+
+    with pytest.raises(ReconciliationMismatchError):
+        await safe.connect()
+
+    mock_broker.disconnect.assert_called_once()
+
+
+async def test_preflight_async_returns_report_without_persisting_state(mock_broker, config):
+    """Test preflight builds a report without mutating the saved state snapshot."""
+    safe = SafeBroker(mock_broker, config)
+    result = await safe.preflight_async()
+
+    assert result["passed"] is True
+    assert result["reconciliation"]["clean"] is True
+    assert result["journal_file"].endswith(".jsonl")
+    assert not Path(config.state_file).read_text().strip()
+
+
 async def test_disconnect_saves_state(mock_broker, config):
     """Test disconnect saves state before disconnecting."""
     safe = SafeBroker(mock_broker, config)
@@ -947,6 +981,58 @@ async def test_disconnect_saves_state(mock_broker, config):
     ]
 
     mock_broker.disconnect.assert_called_once()
+
+
+async def test_replace_order_async_cancels_and_resubmits(mock_broker, config):
+    """Test normalized replace_order_async uses cancel then submit with updated fields."""
+    original = Order(
+        asset="AAPL",
+        side=OrderSide.BUY,
+        quantity=10,
+        order_type=OrderType.LIMIT,
+        limit_price=150.0,
+        order_id="ML4T-1",
+        status=OrderStatus.PENDING,
+        created_at=datetime.now(),
+    )
+    replacement = Order(
+        asset="AAPL",
+        side=OrderSide.BUY,
+        quantity=10,
+        order_type=OrderType.LIMIT,
+        limit_price=149.5,
+        order_id="ML4T-2",
+        status=OrderStatus.PENDING,
+        created_at=datetime.now(),
+    )
+    mock_broker.pending_orders = [original]
+    mock_broker.submit_order_async = AsyncMock(return_value=replacement)
+
+    safe = SafeBroker(mock_broker, config)
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 149.5}}, {})
+
+    result = await safe.replace_order_async("ML4T-1", limit_price=149.5)
+
+    assert result.order_id == "ML4T-2"
+    mock_broker.cancel_order_async.assert_called_once_with("ML4T-1")
+    mock_broker.submit_order_async.assert_called_once()
+
+
+async def test_journal_records_runtime_events(mock_broker, config, tmp_path: Path):
+    """Test journal captures structured order and kill-switch events."""
+    config.shadow_mode = True
+    config.journal_file = str(tmp_path / "runtime.jsonl")
+    safe = SafeBroker(mock_broker, config)
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+
+    await safe.submit_order_async(asset="AAPL", quantity=5, side=OrderSide.BUY)
+    safe.enable_kill_switch("manual test")
+
+    entries = [json.loads(line) for line in Path(config.journal_file).read_text().splitlines()]
+    events = [entry["event"] for entry in entries]
+
+    assert "shadow_order_filled" in events
+    assert "kill_switch_activated" in events
 
 
 async def test_is_connected_async_passthrough(mock_broker, config):

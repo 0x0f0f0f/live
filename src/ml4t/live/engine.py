@@ -253,6 +253,12 @@ class LiveEngine:
                 self.max_recovery_attempts,
                 reason,
             )
+            self._record_runtime_event(
+                "engine_recovery_attempt",
+                attempt=attempt,
+                max_attempts=self.max_recovery_attempts,
+                reason=reason,
+            )
 
             try:
                 self.feed.stop()
@@ -274,16 +280,32 @@ class LiveEngine:
                     attempt,
                     exc,
                 )
+                self._record_runtime_event(
+                    "engine_recovery_failed",
+                    attempt=attempt,
+                    reason=reason,
+                    error=str(exc),
+                )
                 continue
 
             self._recovery_requested_reason = None
             self._last_bar_received_at = None
             logger.info("LiveEngine: Recovery succeeded on attempt %s", attempt)
+            self._record_runtime_event(
+                "engine_recovery_succeeded",
+                attempt=attempt,
+                reason=reason,
+            )
             return True
 
         logger.error(
             "LiveEngine: Recovery failed after %s attempts; stopping",
             self.max_recovery_attempts,
+        )
+        self._record_runtime_event(
+            "engine_recovery_exhausted",
+            max_attempts=self.max_recovery_attempts,
+            reason=reason,
         )
         self._shutdown_event.set()
         return False
@@ -327,6 +349,12 @@ class LiveEngine:
             error,
             exc_info=True,
         )
+        self._record_runtime_event(
+            "strategy_error",
+            timestamp=timestamp.isoformat(),
+            error_type=type(error).__name__,
+            error=str(error),
+        )
 
     def _emit_health_transition(self, status: dict[str, Any]) -> None:
         """Log and callback on health-state changes."""
@@ -335,9 +363,21 @@ class LiveEngine:
             return
 
         logger.info("LiveEngine: Health transition %s -> %s", self._last_health, health)
+        self._record_runtime_event(
+            "engine_health_transition",
+            previous=self._last_health,
+            current=health,
+            detail=status,
+        )
         self._last_health = health
         if self.on_health_change is not None:
             self.on_health_change(health, status)
+
+    def _record_runtime_event(self, event: str, **payload: Any) -> None:
+        """Forward runtime events into the broker journal when supported."""
+        recorder = getattr(self.broker, "record_event", None)
+        if callable(recorder):
+            recorder(event, **payload)
 
     def _normalize_utc(self, timestamp: datetime) -> datetime:
         if timestamp.tzinfo is None:

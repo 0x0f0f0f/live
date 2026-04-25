@@ -84,6 +84,27 @@ class MockBroker:
                 return True
         return False
 
+    def replace_order(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        for order in self._pending_orders:
+            if order.order_id == order_id:
+                self._pending_orders.remove(order)
+                return self.submit_order(
+                    order.asset,
+                    int(order.quantity if quantity is None else quantity),
+                    side=order.side,
+                    order_type=order.order_type,
+                    limit_price=order.limit_price if limit_price is None else limit_price,
+                    stop_price=order.stop_price if stop_price is None else stop_price,
+                )
+        raise RuntimeError(f"Order {order_id} not found")
+
     def close_position(self, asset: str) -> Order | None:
         pos = self.get_position(asset)
         if pos is None:
@@ -159,6 +180,27 @@ class MockAsyncBroker:
                 self._pending_orders.remove(order)
                 return True
         return False
+
+    async def replace_order_async(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        for order in self._pending_orders:
+            if order.order_id == order_id:
+                self._pending_orders.remove(order)
+                return await self.submit_order_async(
+                    order.asset,
+                    int(order.quantity if quantity is None else quantity),
+                    side=order.side,
+                    order_type=order.order_type,
+                    limit_price=order.limit_price if limit_price is None else limit_price,
+                    stop_price=order.stop_price if stop_price is None else stop_price,
+                )
+        raise RuntimeError(f"Order {order_id} not found")
 
     async def close_position_async(self, asset: str) -> Order | None:
         pos = self._positions.get(asset)
@@ -427,6 +469,7 @@ def test_broker_protocol_has_all_required_methods():
         "get_cash",
         "submit_order",
         "cancel_order",
+        "replace_order",
         "close_position",
     ]
 
@@ -448,6 +491,7 @@ def test_async_broker_protocol_has_all_required_methods():
         "get_cash_async",
         "submit_order_async",
         "cancel_order_async",
+        "replace_order_async",
         "close_position_async",
     ]
 

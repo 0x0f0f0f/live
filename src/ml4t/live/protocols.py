@@ -133,6 +133,17 @@ class BrokerProtocol(Protocol):
         """
         ...
 
+    def replace_order(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        """Replace a pending order with updated parameters."""
+        ...
+
     def close_position(self, asset: str) -> Order | None:
         """Close entire position in asset.
 
@@ -226,6 +237,17 @@ class AsyncBrokerProtocol(Protocol):
 
     async def cancel_order_async(self, order_id: str) -> bool:
         """Cancel order (async version)."""
+        ...
+
+    async def replace_order_async(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        """Replace a pending order with updated parameters (async version)."""
         ...
 
     async def close_position_async(self, asset: str) -> Order | None:

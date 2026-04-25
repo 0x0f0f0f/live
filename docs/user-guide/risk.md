@@ -40,7 +40,9 @@ config = LiveRiskConfig(
     blocked_assets={"GME"},
     shadow_mode=True,
     kill_switch_enabled=False,
+    fail_on_reconciliation_mismatch=True,
     state_file=".ml4t_risk_state.json",
+    journal_file=".ml4t_execution_journal.jsonl",
 )
 ```
 
@@ -73,7 +75,9 @@ config = LiveRiskConfig(
 
 - `shadow_mode`
 - `kill_switch_enabled`
+- `fail_on_reconciliation_mismatch`
 - `state_file`
+- `journal_file`
 
 ## Persisted State
 
@@ -85,6 +89,18 @@ The risk state file persists more than just the kill switch. It now captures:
 - kill-switch state and reason
 
 That persisted snapshot is used again on the next `SafeBroker.connect()` to generate the startup reconciliation report.
+If `fail_on_reconciliation_mismatch=True`, a non-clean reconciliation raises `ReconciliationMismatchError` and blocks startup outside shadow mode.
+
+## Execution Journal
+
+`SafeBroker` also writes a JSONL execution journal. By default it lives next to the risk-state file and includes:
+
+- order submissions and shadow fills
+- manual or automatic kill-switch events
+- startup reconciliation outcomes
+- engine health transitions and recovery attempts when the broker is used through `LiveEngine`
+
+Set `journal_file` explicitly when you want the journal stored elsewhere.
 
 ## Shadow Mode
 
@@ -136,6 +152,9 @@ Inside `Strategy.on_data(...)`, order placement stays synchronous because `LiveE
 def on_data(self, timestamp, data, context, broker):
     if broker.get_position("AAPL") is None:
         broker.submit_order("AAPL", 10)
+
+    # Pending orders can also be updated through the sync wrapper.
+    # broker.replace_order("ML4T-1", limit_price=189.5)
 ```
 
 ## Errors

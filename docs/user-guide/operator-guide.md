@@ -10,10 +10,13 @@
 
 Before you route anything real:
 
-- run `uv run ml4t-live status --state-file .ml4t_risk_state.json`
+- run `uv run ml4t-live preflight ib --state-file .ml4t_risk_state.json --strict`
+- confirm preflight exits successfully before you promote a paper or live session
 - confirm the persisted risk state does not show an unexpected active kill switch
-- check the persisted position and pending-order snapshot from the last disconnect
-- verify broker probes only if you actually expect those brokers to be reachable from this machine
+- check that startup reconciliation is clean, or intentionally explain every mismatch before proceeding
+- verify the journal path is where you expect runtime events to land for this session
+
+If you only want a descriptive dump and not a pass/fail check, use `status` instead.
 
 ## Shadow Phase
 
@@ -30,6 +33,8 @@ What to watch during the run:
 - `health=idle_market_closed` for US equity feeds outside regular market hours
 - `recent_intents` to confirm the strategy is attempting the trades you expect
 - `positions` to confirm `VirtualPortfolio` state changes line up with those intents
+
+For the public OKX feed, the shadow CLI uses a looser default silence threshold than streaming feeds. Public REST-polled minute bars can arrive unevenly even when the feed is healthy, so `feed_silent` on OKX should be interpreted relative to that wider threshold unless you override it explicitly.
 
 ## Paper Phase
 
@@ -54,6 +59,8 @@ LiveRiskConfig(
 )
 ```
 
+If you are running US equities and want preflight to fail outside the regular session window, add `--require-market-open` to the CLI check.
+
 ## Reconciliation On Startup
 
 `SafeBroker.connect()` now compares the persisted snapshot from the previous run against the broker's live positions and pending orders.
@@ -65,6 +72,8 @@ If the report shows missing or unexpected positions/orders, stop and investigate
 - a previous run exited uncleanly
 - manual broker activity occurred outside `ml4t-live`
 - fills or cancellations landed after the last persisted snapshot
+
+If you want the library to fail closed instead of only logging the mismatch, set `fail_on_reconciliation_mismatch=True` in `LiveRiskConfig`.
 
 Use the credential-free example when you want to inspect the shape of the report:
 
@@ -78,7 +87,8 @@ Promotion from paper to live should be a size change, not a system change.
 
 Keep the same strategy, broker adapter, and monitoring path. Tighten nothing except your operational discipline:
 
-- run `status` before the session starts
+- run `preflight --strict` before the session starts
+- use `status` for the human-readable snapshot and recent journal tail
 - check the startup reconciliation report
 - start with smaller notional than you think you need
 - only scale after repeated clean starts, stable data, and expected fills
@@ -95,6 +105,18 @@ The runtime status values are intentionally narrow:
 - `stopped`: engine is not running
 
 Those states are for operator interpretation. They do not replace external process monitoring or deployment supervision.
+
+## Execution Journal
+
+`SafeBroker` now writes a JSONL execution journal next to the risk-state file by default. It records:
+
+- submitted or shadow-filled orders
+- kill-switch activations
+- startup reconciliation outcomes
+- engine health transitions
+- watchdog recovery attempts and results
+
+Use `status` when you want a short journal tail, and inspect the JSONL file directly when you need a deeper operator trail.
 
 ## Optional Watchdog Recovery
 

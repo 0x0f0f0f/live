@@ -115,6 +115,29 @@ class MockAsyncBroker:
                 return True
         return False
 
+    async def replace_order_async(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        """Replace order."""
+        await asyncio.sleep(0.01)
+        for order in list(self._pending_orders):
+            if order.id == order_id:
+                self._pending_orders.remove(order)
+                return await self.submit_order_async(
+                    asset=order.asset,
+                    quantity=int(order.quantity if quantity is None else quantity),
+                    side=order.side,
+                    order_type=order.type,
+                    limit_price=order.limit_price if limit_price is None else limit_price,
+                    stop_price=order.stop_price if stop_price is None else stop_price,
+                )
+        raise RuntimeError(f"Order {order_id} not found")
+
     async def close_position_async(self, asset: str) -> Order | None:
         """Close position."""
         pos = await self.get_position_async(asset)

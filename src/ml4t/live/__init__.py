@@ -18,7 +18,14 @@ from .feeds.databento_feed import DataBentoFeed
 from .feeds.ib_feed import IBDataFeed
 from .feeds.okx_feed import OKXFundingFeed
 from .protocols import AsyncBrokerProtocol, BrokerProtocol, DataFeedProtocol
-from .safety import LiveRiskConfig, RiskLimitError, RiskState, SafeBroker, VirtualPortfolio
+from .safety import (
+    LiveRiskConfig,
+    ReconciliationMismatchError,
+    RiskLimitError,
+    RiskState,
+    SafeBroker,
+    VirtualPortfolio,
+)
 from .wrappers import ThreadSafeBrokerWrapper
 
 __all__ = [
@@ -41,6 +48,7 @@ __all__ = [
     "DataFeedProtocol",
     # Safety
     "LiveRiskConfig",
+    "ReconciliationMismatchError",
     "RiskLimitError",
     "RiskState",
     "SafeBroker",

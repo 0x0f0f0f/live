@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib.util
+import json
 import os
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
@@ -19,7 +20,7 @@ from ml4t.backtest.types import Order, OrderSide, OrderType, Position
 from ml4t.live import __version__
 from ml4t.live.brokers.alpaca import AlpacaBroker
 from ml4t.live.brokers.ib import IBBroker
-from ml4t.live.engine import LiveEngine
+from ml4t.live.engine import US_EASTERN, US_EQUITY_CLOSE, US_EQUITY_OPEN, LiveEngine
 from ml4t.live.feeds.alpaca_feed import AlpacaDataFeed
 from ml4t.live.feeds.okx_feed import OKXFundingFeed
 from ml4t.live.protocols import AsyncBrokerProtocol, DataFeedProtocol
@@ -43,6 +44,20 @@ class OrderIntentRecord:
     side: str
     quantity: float
     order_type: str
+
+
+@dataclass
+class PreflightResult:
+    status: str
+    detail: str
+    account_value: float | None
+    cash: float | None
+    reconciliation_report: dict[str, Any] | None
+    kill_switch_activated: bool
+    kill_switch_reason: str
+    journal_file: str | None
+    session_state: str | None
+    next_session_boundary: datetime | None
 
 
 class NullBroker:
@@ -100,6 +115,16 @@ class NullBroker:
 
     async def cancel_order_async(self, order_id: str) -> bool:
         return False
+
+    async def replace_order_async(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        raise RuntimeError("NullBroker should never replace live orders in shadow mode")
 
     async def close_position_async(self, asset: str) -> Order | None:
         return None
@@ -178,6 +203,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="path to the persisted risk-state JSON file",
     )
 
+    preflight = subparsers.add_parser("preflight", help="run broker and reconciliation checks")
+    preflight.add_argument("broker", choices=("alpaca", "ib"), help="broker to preflight")
+    preflight.add_argument(
+        "--state-file",
+        default=DEFAULT_STATE_FILE,
+        help="path to the persisted risk-state JSON file",
+    )
+    preflight.add_argument(
+        "--strict",
+        action="store_true",
+        help="fail preflight when reconciliation is not clean",
+    )
+    preflight.add_argument(
+        "--require-market-open",
+        action="store_true",
+        help="fail preflight when the US equity session is not open",
+    )
+
     shadow = subparsers.add_parser("shadow", help="run a strategy in shadow mode")
     shadow.add_argument("strategy", type=Path, help="path to a Python strategy file")
     shadow.add_argument(
@@ -191,6 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=60,
         help="shadow run duration in seconds",
+    )
+    shadow.add_argument(
+        "--feed-silence-seconds",
+        type=float,
+        default=None,
+        help="override the runtime silence threshold used for health reporting",
     )
     shadow.add_argument(
         "--state-file",
@@ -257,6 +306,13 @@ def _module_symbols(module: ModuleType, feed_name: str) -> list[str]:
     ):
         raise TypeError("SYMBOLS or FEED_SYMBOLS must be a list[str] or tuple[str, ...]")
     return list(candidate)
+
+
+def _default_shadow_feed_silence_seconds(feed_name: str) -> float:
+    """Return a practical silence threshold for the selected shadow feed."""
+    if feed_name == "okx":
+        return 90.0
+    return 30.0
 
 
 async def _make_feed(feed_name: str, module: ModuleType) -> Any:
@@ -328,6 +384,71 @@ def _format_age(age_seconds: float | None) -> str:
     return f"{age_seconds:.1f}s"
 
 
+def _journal_path_for_state_file(state_file: Path) -> Path:
+    suffix = state_file.suffix or ".json"
+    return state_file.with_name(f"{state_file.stem}-journal{suffix}l")
+
+
+def _tail_journal(path: Path, limit: int = 3) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines()[-limit:]:
+        if not line.strip():
+            continue
+        try:
+            entries.append(cast(dict[str, Any], json.loads(line)))
+        except Exception:
+            continue
+    return entries
+
+
+def _format_journal_entry(entry: dict[str, Any]) -> str:
+    timestamp = entry.get("timestamp", "n/a")
+    event = entry.get("event", "unknown")
+    payload = entry.get("payload", {})
+    if isinstance(payload, dict) and payload:
+        summary = ", ".join(f"{key}={value}" for key, value in sorted(payload.items()))
+        return f"{timestamp} {event} ({summary})"
+    return f"{timestamp} {event}"
+
+
+def _equity_session_snapshot(reference: datetime | None = None) -> tuple[str, datetime | None]:
+    now = reference or datetime.now(UTC)
+    now_et = now.astimezone(US_EASTERN)
+    open_dt = datetime.combine(now_et.date(), US_EQUITY_OPEN, tzinfo=US_EASTERN)
+    close_dt = datetime.combine(now_et.date(), US_EQUITY_CLOSE, tzinfo=US_EASTERN)
+
+    if now_et.weekday() >= 5:
+        next_date = now_et.date() + timedelta(days=1)
+        while next_date.weekday() >= 5:
+            next_date += timedelta(days=1)
+        next_open = datetime.combine(next_date, US_EQUITY_OPEN, tzinfo=US_EASTERN)
+        return "closed", next_open.astimezone(UTC)
+    if now_et < open_dt:
+        return "pre_open", open_dt.astimezone(UTC)
+    if now_et < close_dt:
+        return "open", close_dt.astimezone(UTC)
+
+    next_date = now_et.date() + timedelta(days=1)
+    next_open = datetime.combine(next_date, US_EQUITY_OPEN, tzinfo=US_EASTERN)
+    while next_open.weekday() >= 5:
+        next_open = datetime.combine(
+            next_open.date() + timedelta(days=1),
+            US_EQUITY_OPEN,
+            tzinfo=US_EASTERN,
+        )
+    return "closed", next_open.astimezone(UTC)
+
+
+def _alpaca_paper_mode() -> bool:
+    raw = os.environ.get("ALPACA_PAPER")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _classify_status(
     state: RiskState | None,
     probes: list[BrokerProbeResult],
@@ -377,6 +498,11 @@ async def _run_shadow_command(args: argparse.Namespace) -> int:
     module = _load_strategy_module(args.strategy)
     strategy = _load_strategy_instance(module)
     feed = await _make_feed(args.feed, module)
+    feed_silence_seconds = (
+        args.feed_silence_seconds
+        if args.feed_silence_seconds is not None
+        else _default_shadow_feed_silence_seconds(args.feed)
+    )
 
     broker = IntentPrintingSafeBroker(
         NullBroker(),
@@ -389,11 +515,12 @@ async def _run_shadow_command(args: argparse.Namespace) -> int:
         strategy=strategy,
         broker=cast(AsyncBrokerProtocol, broker),
         feed=cast(DataFeedProtocol, feed),
-        feed_silence_seconds=30.0,
+        feed_silence_seconds=feed_silence_seconds,
     )
 
     print(
         f"Starting shadow run for {args.duration}s with feed={args.feed}"
+        f" silence_threshold={feed_silence_seconds:.1f}s"
         f" strategy={args.strategy.resolve()}"
     )
 
@@ -458,7 +585,8 @@ async def _probe_alpaca() -> BrokerProbeResult:
             pending_orders=[],
         )
 
-    broker = AlpacaBroker(api_key=api_key, secret_key=secret_key, paper=True)
+    paper = _alpaca_paper_mode()
+    broker = AlpacaBroker(api_key=api_key, secret_key=secret_key, paper=paper)
     try:
         await broker.connect()
         cash = await broker.get_cash_async()
@@ -466,7 +594,7 @@ async def _probe_alpaca() -> BrokerProbeResult:
         pending_orders = _serialize_pending_orders(await broker.get_pending_orders_async())
         return BrokerProbeResult(
             status="ok",
-            detail=f"paper account reachable, cash=${cash:,.2f}",
+            detail=f"{'paper' if paper else 'live'} account reachable, cash=${cash:,.2f}",
             positions=positions,
             pending_orders=pending_orders,
         )
@@ -530,9 +658,11 @@ async def _probe_ib() -> BrokerProbeResult:
 async def _run_status_command(args: argparse.Namespace) -> int:
     state_path = Path(args.state_file).expanduser().resolve()
     state = RiskState.load(str(state_path))
+    journal_path = _journal_path_for_state_file(state_path)
 
     print(f"ml4t-live {__version__}")
     print(f"risk_state_file: {state_path}")
+    print(f"journal_file: {journal_path}")
     if state is None:
         print("risk_state: missing")
     else:
@@ -565,7 +695,123 @@ async def _run_status_command(args: argparse.Namespace) -> int:
     if ib.positions or ib.pending_orders:
         print(f"ib_positions: {_format_positions(ib.positions)}")
         print(f"ib_pending_orders: {_format_pending_orders(ib.pending_orders)}")
+
+    for entry in _tail_journal(journal_path):
+        print(f"journal_tail: {_format_journal_entry(entry)}")
     return 0
+
+
+async def _preflight_broker(args: argparse.Namespace) -> PreflightResult:
+    state_path = Path(args.state_file).expanduser().resolve()
+
+    if args.broker == "alpaca":
+        api_key = os.environ.get("ALPACA_API_KEY")
+        secret_key = os.environ.get("ALPACA_SECRET_KEY")
+        if not api_key or not secret_key:
+            return PreflightResult(
+                status="error",
+                detail="ALPACA_API_KEY and ALPACA_SECRET_KEY must be set",
+                account_value=None,
+                cash=None,
+                reconciliation_report=None,
+                kill_switch_activated=False,
+                kill_switch_reason="",
+                journal_file=str(_journal_path_for_state_file(state_path)),
+                session_state=None,
+                next_session_boundary=None,
+            )
+        broker = AlpacaBroker(
+            api_key=api_key,
+            secret_key=secret_key,
+            paper=_alpaca_paper_mode(),
+        )
+    else:
+        host = os.environ.get("IB_HOST") or os.environ.get("ML4T_IB_HOST") or "127.0.0.1"
+        port = int(os.environ.get("IB_PORT") or os.environ.get("ML4T_IB_PORT") or 7497)
+        client_id = int(
+            os.environ.get("IB_CLIENT_ID") or os.environ.get("ML4T_IB_CLIENT_ID") or 1999
+        )
+        broker = IBBroker(host=host, port=port, client_id=client_id)
+
+    safe_broker = SafeBroker(
+        broker,
+        LiveRiskConfig(
+            state_file=str(state_path),
+            fail_on_reconciliation_mismatch=args.strict,
+        ),
+    )
+    session_state, next_boundary = _equity_session_snapshot()
+
+    try:
+        result = await safe_broker.preflight_async()
+    except Exception as exc:
+        return PreflightResult(
+            status="error",
+            detail=str(exc),
+            account_value=None,
+            cash=None,
+            reconciliation_report=None,
+            kill_switch_activated=False,
+            kill_switch_reason="",
+            journal_file=str(safe_broker._journal_path()),
+            session_state=session_state,
+            next_session_boundary=next_boundary,
+        )
+
+    status = "ok" if result["passed"] else "degraded"
+    detail = "preflight passed" if result["passed"] else "preflight found blocking issues"
+    if args.require_market_open and session_state != "open":
+        status = "degraded"
+        detail = f"market session is {session_state}"
+
+    return PreflightResult(
+        status=status,
+        detail=detail,
+        account_value=float(result["account_value"]),
+        cash=float(result["cash"]),
+        reconciliation_report=cast(dict[str, Any], result["reconciliation"]),
+        kill_switch_activated=bool(result["kill_switch_activated"]),
+        kill_switch_reason=str(result["kill_switch_reason"]),
+        journal_file=str(result["journal_file"]),
+        session_state=session_state,
+        next_session_boundary=next_boundary,
+    )
+
+
+async def _run_preflight_command(args: argparse.Namespace) -> int:
+    state_path = Path(args.state_file).expanduser().resolve()
+    result = await _preflight_broker(args)
+
+    print(f"ml4t-live {__version__}")
+    print(f"preflight_broker: {args.broker}")
+    print(f"risk_state_file: {state_path}")
+    if result.journal_file:
+        print(f"journal_file: {result.journal_file}")
+    print(f"preflight_status: {result.status} - {result.detail}")
+
+    if result.account_value is not None:
+        print(f"account_value: {result.account_value:,.2f}")
+    if result.cash is not None:
+        print(f"cash: {result.cash:,.2f}")
+
+    if result.session_state is not None:
+        print(f"session_state: {result.session_state}")
+        print(f"next_session_boundary: {_format_timestamp(result.next_session_boundary)}")
+
+    print(f"kill_switch: {result.kill_switch_activated}")
+    if result.kill_switch_reason:
+        print(f"kill_switch_reason: {result.kill_switch_reason}")
+
+    if result.reconciliation_report is not None:
+        report = result.reconciliation_report
+        print(f"reconciliation_clean: {report['clean']}")
+        print(f"missing_positions: {_format_positions(report['missing_positions'])}")
+        print(f"unexpected_positions: {_format_positions(report['unexpected_positions'])}")
+        print(f"missing_pending_orders_count: {len(report['missing_pending_orders'])}")
+        print(f"unexpected_pending_orders_count: {len(report['unexpected_pending_orders'])}")
+
+    failed = result.status != "ok"
+    return 1 if failed else 0
 
 
 def run_cli(argv: list[str] | None = None) -> int:
@@ -574,6 +820,8 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     if args.command == "status":
         return asyncio.run(_run_status_command(args))
+    if args.command == "preflight":
+        return asyncio.run(_run_preflight_command(args))
     if args.command == "shadow":
         return asyncio.run(_run_shadow_command(args))
 

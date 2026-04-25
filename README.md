@@ -24,6 +24,7 @@ Deploying a backtested strategy to live markets requires careful handling of asy
 - Shadow mode for testing without placing real orders (VirtualPortfolio tracking)
 - 16-parameter risk configuration: position limits, order limits, loss limits, price protection
 - Kill switch with crash-safe state persistence (atomic JSON writes)
+- Startup preflight, reconciliation, and JSONL execution journaling for operator workflows
 - Async architecture with thread-safe sync bridge for strategy callbacks
 
 The goal is gradual deployment: shadow mode first, then paper trading, then live with small positions.
@@ -33,7 +34,7 @@ The goal is gradual deployment: shadow mode first, then paper trading, then live
 ## Installation
 
 ```bash
-pip install ml4t-live
+uv add ml4t-live
 ```
 
 ## Quick Start
@@ -171,6 +172,10 @@ config = LiveRiskConfig(
 
     # Asset restrictions
     allowed_assets={"SPY", "QQQ"},      # Whitelist (empty = allow all)
+
+    # Startup and persistence
+    fail_on_reconciliation_mismatch=True,
+    journal_file=".ml4t_execution_journal.jsonl",
 )
 
 safe_broker = SafeBroker(broker, config)
@@ -209,6 +214,37 @@ Risk state survives process crashes via atomic file writes:
 - `orders_placed` - Orders placed today
 - `high_water_mark` - Session high equity
 - `kill_switch_activated` - Persists until manually reset
+
+`SafeBroker` also writes a JSONL execution journal with reconciliation, order, kill-switch, and runtime health events. By default it sits next to the state file.
+
+## Operator CLI
+
+Use the CLI as a thin operator surface around the Python API:
+
+```bash
+# Fail-fast startup check for a real broker session
+uv run ml4t-live preflight ib --state-file .ml4t_risk_state.json --strict
+
+# Human-readable state and recent journal tail
+uv run ml4t-live status --state-file .ml4t_risk_state.json
+
+# Bounded shadow soak
+uv run ml4t-live shadow examples/shadow_mode_demo.py --feed okx --duration 60
+```
+
+`preflight` is the beta-oriented command: it checks broker reachability, balances, persisted kill-switch state, startup reconciliation, and session state, and exits non-zero when the result is degraded.
+
+## Order Lifecycle
+
+Strategies still place orders through the same synchronous wrapper interface, but pending orders can now be replaced in a normalized way:
+
+```python
+def on_data(self, timestamp, data, context, broker):
+    if broker.pending_orders:
+        broker.replace_order(broker.pending_orders[0].order_id, limit_price=189.5)
+```
+
+The default implementation uses a safe cancel-and-resubmit flow across supported brokers.
 
 ## Deployment Progression
 

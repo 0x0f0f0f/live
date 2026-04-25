@@ -187,6 +187,25 @@ class ThreadSafeBrokerWrapper:
         """
         return self._run_sync(self._broker.cancel_order_async(order_id), timeout=30.0)
 
+    def replace_order(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        """Replace a pending order with updated parameters."""
+        return self._run_sync(
+            self._broker.replace_order_async(
+                order_id,
+                quantity=quantity,
+                limit_price=limit_price,
+                stop_price=stop_price,
+            ),
+            timeout=30.0,
+        )
+
     def close_position(self, asset: str) -> Order | None:
         """Close entire position in asset.
 

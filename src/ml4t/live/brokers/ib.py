@@ -346,6 +346,36 @@ class IBBroker(AsyncBrokerProtocol):
         logger.warning(f"IBBroker: Order {order_id} not found in open trades")
         return False
 
+    async def replace_order_async(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        """Replace a pending order via cancel-and-resubmit."""
+        original = self._pending_orders.get(order_id)
+        if original is None:
+            raise RuntimeError(f"Order {order_id} not found in pending orders")
+
+        replacement_quantity = original.quantity if quantity is None else quantity
+        replacement_limit = original.limit_price if limit_price is None else limit_price
+        replacement_stop = original.stop_price if stop_price is None else stop_price
+
+        cancelled = await self.cancel_order_async(order_id)
+        if not cancelled:
+            raise RuntimeError(f"Failed to cancel order {order_id} before replacement")
+
+        return await self.submit_order_async(
+            asset=original.asset,
+            quantity=replacement_quantity,
+            side=original.side,
+            order_type=original.order_type,
+            limit_price=replacement_limit,
+            stop_price=replacement_stop,
+        )
+
     async def close_position_async(self, asset: str) -> Order | None:
         """Close position in asset.
 

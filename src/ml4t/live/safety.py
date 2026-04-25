@@ -87,8 +87,12 @@ class LiveRiskConfig:
     # Kill switch
     kill_switch_enabled: bool = False
 
+    # Startup reconciliation
+    fail_on_reconciliation_mismatch: bool = False
+
     # State persistence
     state_file: str = ".ml4t_risk_state.json"
+    journal_file: str | None = None
 
     def __post_init__(self):
         """Validate configuration parameters."""
@@ -155,6 +159,8 @@ class LiveRiskConfig:
         # Validate state file path
         if not self.state_file:
             raise ValueError("state_file cannot be empty")
+        if self.journal_file is not None and not self.journal_file:
+            raise ValueError("journal_file cannot be empty when provided")
 
 
 @dataclass
@@ -471,6 +477,12 @@ class RiskLimitError(Exception):
     pass
 
 
+class ReconciliationMismatchError(RuntimeError):
+    """Raised when startup reconciliation is configured to fail closed."""
+
+    pass
+
+
 class SafeBroker:
     """Risk-controlled wrapper with state persistence.
 
@@ -624,7 +636,13 @@ class SafeBroker:
         Returns:
             True if cancel request submitted
         """
-        return await self._broker.cancel_order_async(order_id)
+        cancelled = await self._broker.cancel_order_async(order_id)
+        self.record_event(
+            "order_cancel_requested",
+            order_id=order_id,
+            cancelled=cancelled,
+        )
+        return cancelled
 
     async def close_position_async(self, asset: str) -> Order | None:
         """Close entire position.
@@ -641,7 +659,59 @@ class SafeBroker:
         if self.config.shadow_mode:
             logger.info(f"SHADOW: Would close position in {asset}")
             return None
-        return await self._broker.close_position_async(asset)
+        order = await self._broker.close_position_async(asset)
+        self.record_event(
+            "close_position_requested",
+            asset=asset,
+            order_id=self._order_identifier(order),
+        )
+        return order
+
+    async def replace_order_async(
+        self,
+        order_id: str,
+        *,
+        quantity: float | None = None,
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> Order:
+        """Replace a pending order via cancel-and-resubmit."""
+        original = self._pending_order_by_id(order_id)
+        if original is None:
+            raise RiskLimitError(f"Pending order {order_id} not found")
+
+        replacement_quantity = float(original.quantity if quantity is None else quantity)
+        replacement_limit = original.limit_price if limit_price is None else limit_price
+        replacement_stop = original.stop_price if stop_price is None else stop_price
+
+        asset = original.asset.upper()
+        self._recent_orders = [
+            entry
+            for entry in self._recent_orders
+            if not (entry[1] == asset and abs(entry[2] - float(original.quantity)) < 0.01)
+        ]
+
+        cancelled = await self.cancel_order_async(order_id)
+        if not cancelled:
+            raise RiskLimitError(f"Could not cancel order {order_id} before replacement")
+
+        replacement = await self.submit_order_async(
+            asset=original.asset,
+            quantity=int(replacement_quantity),
+            side=original.side,
+            order_type=original.order_type,
+            limit_price=replacement_limit,
+            stop_price=replacement_stop,
+        )
+        self.record_event(
+            "order_replaced",
+            original_order_id=order_id,
+            replacement_order_id=self._order_identifier(replacement),
+            asset=original.asset,
+            quantity=replacement_quantity,
+            order_type=original.order_type.value,
+        )
+        return replacement
 
     # === Risk-Controlled Order Submission ===
 
@@ -745,6 +815,11 @@ class SafeBroker:
             self._refresh_state_snapshot_from_cache()
             self._prune_history()  # Memory leak fix
             self._save_state()
+            self.record_event(
+                "shadow_order_filled",
+                **self._order_event_payload(order),
+                order_value=order_value,
+            )
 
             return order
 
@@ -760,6 +835,11 @@ class SafeBroker:
         self._refresh_state_snapshot_from_cache()
         self._prune_history()  # Memory leak fix
         self._save_state()
+        self.record_event(
+            "order_submitted",
+            **self._order_event_payload(order),
+            order_value=order_value,
+        )
 
         return order
 
@@ -1102,6 +1182,7 @@ class SafeBroker:
         self._state.kill_switch_reason = reason
         self.config.kill_switch_enabled = True
         self._save_state()
+        self.record_event("kill_switch_activated", reason=reason)
 
     def enable_kill_switch(self, reason: str = "Manual") -> None:
         """Manually enable kill switch.
@@ -1118,6 +1199,7 @@ class SafeBroker:
         self._state.kill_switch_reason = ""
         self.config.kill_switch_enabled = False
         self._save_state()
+        self.record_event("kill_switch_disabled")
 
     async def close_all_positions(self) -> list[Order]:
         """Emergency close all positions.
@@ -1181,6 +1263,86 @@ class SafeBroker:
             os.replace(tmp_path, path)
         except Exception as e:
             logger.error(f"Failed to save risk state: {e}")
+
+    def _journal_path(self) -> Path:
+        """Return the configured JSONL journal path."""
+        if self.config.journal_file is not None:
+            return Path(self.config.journal_file)
+
+        state_path = Path(self.config.state_file)
+        suffix = state_path.suffix or ".json"
+        return state_path.with_name(f"{state_path.stem}-journal{suffix}l")
+
+    def record_event(self, event: str, **payload: Any) -> None:
+        """Append a structured runtime event to the execution journal."""
+        entry = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "event": event,
+            "shadow_mode": self.config.shadow_mode,
+            "kill_switch": self._state.kill_switch_activated,
+            "orders_placed": self._state.orders_placed,
+            "daily_loss": self._state.daily_loss,
+            "payload": self._json_safe(payload),
+        }
+
+        try:
+            path = self._journal_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, sort_keys=True) + "\n")
+        except Exception as exc:
+            logger.error("Failed to append journal entry: %s", exc)
+
+    def _json_safe(self, value: Any) -> Any:
+        """Convert runtime payloads into JSON-serializable primitives."""
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=UTC)
+            return value.isoformat()
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {str(key): self._json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe(item) for item in value]
+        return value
+
+    def _order_identifier(self, order: Order | None) -> str | None:
+        """Return the best available local identifier for an order."""
+        if order is None:
+            return None
+        for attr in ("order_id", "id"):
+            value = getattr(order, attr, None)
+            if value is not None:
+                return str(value)
+        return None
+
+    def _order_event_payload(self, order: Order) -> dict[str, Any]:
+        """Serialize an order into a compact journal payload."""
+        payload = {
+            "order_id": self._order_identifier(order),
+            "asset": order.asset,
+            "side": order.side.value,
+            "quantity": float(order.quantity),
+            "order_type": order.order_type.value,
+            "status": order.status.value if order.status is not None else None,
+        }
+        if order.limit_price is not None:
+            payload["limit_price"] = float(order.limit_price)
+        if order.stop_price is not None:
+            payload["stop_price"] = float(order.stop_price)
+        if order.filled_price is not None:
+            payload["filled_price"] = float(order.filled_price)
+        if order.filled_quantity is not None:
+            payload["filled_quantity"] = float(order.filled_quantity)
+        return payload
+
+    def _pending_order_by_id(self, order_id: str) -> Order | None:
+        """Find a pending order by either order_id or id attribute."""
+        for order in self.pending_orders:
+            if self._order_identifier(order) == order_id:
+                return order
+        return None
 
     def _prune_history(self) -> None:
         """Clean up old entries to prevent memory leaks (Gemini v2 fix).
@@ -1369,16 +1531,67 @@ class SafeBroker:
             issues.append(f"unexpected_pending_orders={len(report['unexpected_pending_orders'])}")
         logger.warning("SafeBroker reconciliation mismatch: %s", ", ".join(issues))
 
+    async def preview_reconciliation_async(self) -> dict[str, Any]:
+        """Build the current runtime reconciliation report without mutating state."""
+        live_positions, live_pending_orders = await self._capture_runtime_snapshot_async()
+        return self._build_reconciliation_report(live_positions, live_pending_orders)
+
+    async def preflight_async(self) -> dict[str, Any]:
+        """Probe broker reachability and startup reconciliation without persisting state."""
+        await self._broker.connect()
+        try:
+            account_value = await self.get_account_value_async()
+            cash = await self.get_cash_async()
+            report = await self.preview_reconciliation_async()
+            connected = await self._broker.is_connected_async()
+            result = {
+                "broker_connected": connected,
+                "account_value": account_value,
+                "cash": cash,
+                "kill_switch_activated": self._state.kill_switch_activated,
+                "kill_switch_reason": self._state.kill_switch_reason,
+                "reconciliation": report,
+                "journal_file": str(self._journal_path()),
+                "state_file": self.config.state_file,
+                "passed": connected
+                and not self._state.kill_switch_activated
+                and (report["clean"] or not self.config.fail_on_reconciliation_mismatch),
+            }
+            self.record_event(
+                "preflight_completed",
+                passed=result["passed"],
+                reconciliation_clean=report["clean"],
+                broker_connected=connected,
+            )
+            return result
+        finally:
+            await self._broker.disconnect()
+
     # === Broker Connection Methods (passthrough) ===
 
     async def connect(self) -> None:
         """Connect to broker and reconcile persisted state."""
         await self._broker.connect()
-        live_positions, live_pending_orders = await self._capture_runtime_snapshot_async()
-        report = self._build_reconciliation_report(live_positions, live_pending_orders)
+        report = await self.preview_reconciliation_async()
         self._last_reconciliation_report = report
         self._log_reconciliation_report(report)
+        if report["clean"]:
+            self.record_event("reconciliation_clean")
+        else:
+            self.record_event("reconciliation_mismatch", report=report)
+
+        if (
+            not report["clean"]
+            and self.config.fail_on_reconciliation_mismatch
+            and not self.config.shadow_mode
+        ):
+            self.record_event("reconciliation_blocked_startup", report=report)
+            await self._broker.disconnect()
+            raise ReconciliationMismatchError("Startup reconciliation mismatch blocked connect()")
+
+        live_positions, live_pending_orders = await self._capture_runtime_snapshot_async()
         self._set_state_snapshot(live_positions, live_pending_orders)
+        self.record_event("broker_connected")
 
     async def disconnect(self) -> None:
         """Disconnect from broker and save state."""
@@ -1390,6 +1603,7 @@ class SafeBroker:
             self._refresh_state_snapshot_from_cache()
         self._save_state()
         await self._broker.disconnect()
+        self.record_event("broker_disconnected")
 
     async def is_connected_async(self) -> bool:
         """Check if connected (async)."""
