@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
+from alpaca.trading.enums import TimeInForce
+from alpaca.trading.requests import MarketOrderRequest
 from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
 
 from ml4t.live.brokers.alpaca import AlpacaBroker
@@ -542,6 +544,98 @@ class TestAlpacaBrokerOrderSubmission:
         assert order.order_type == OrderType.STOP_LIMIT
         assert order.limit_price == 139.50
         assert order.stop_price == 140.00
+
+    @pytest.mark.asyncio
+    @patch("ml4t.live.brokers.alpaca.TradingClient")
+    async def test_submit_moc_order(self, mock_client_class):
+        """Test Alpaca maps MOC to a market order with CLS time-in-force."""
+        mock_client = MagicMock()
+        mock_client.submit_order.return_value = MockAlpacaOrder(
+            id="alpaca-order-128",
+            symbol="AAPL",
+            qty="100",
+            side="buy",
+            type="market",
+            status="new",
+        )
+
+        broker = AlpacaBroker(api_key="PKTEST", secret_key="SECRET")
+        broker._trading_client = mock_client
+        broker._connected = True
+
+        order = await broker.submit_order_async(
+            asset="AAPL",
+            quantity=100,
+            side=OrderSide.BUY,
+            order_type=OrderType.MOC,
+        )
+
+        assert order.order_type == OrderType.MOC
+
+        order_request = mock_client.submit_order.call_args.args[0]
+        assert isinstance(order_request, MarketOrderRequest)
+        assert order_request.time_in_force == TimeInForce.CLS
+
+    @pytest.mark.asyncio
+    @patch("ml4t.live.brokers.alpaca.TradingClient")
+    async def test_submit_moc_order_rejects_extended_hours(self, mock_client_class):
+        """Test Alpaca rejects extended-hours flags for MOC orders."""
+        mock_client = MagicMock()
+
+        broker = AlpacaBroker(api_key="PKTEST", secret_key="SECRET")
+        broker._trading_client = mock_client
+        broker._connected = True
+
+        with pytest.raises(ValueError, match="extended_hours=True"):
+            await broker.submit_order_async(
+                asset="AAPL",
+                quantity=100,
+                side=OrderSide.BUY,
+                order_type=OrderType.MOC,
+                extended_hours=True,
+            )
+
+        mock_client.submit_order.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("ml4t.live.brokers.alpaca.TradingClient")
+    async def test_submit_moc_order_rejects_crypto(self, mock_client_class):
+        """Test Alpaca MOC support is restricted to US equities."""
+        mock_client = MagicMock()
+
+        broker = AlpacaBroker(api_key="PKTEST", secret_key="SECRET")
+        broker._trading_client = mock_client
+        broker._connected = True
+
+        with pytest.raises(NotImplementedError, match="US equities"):
+            await broker.submit_order_async(
+                asset="BTC/USD",
+                quantity=1,
+                side=OrderSide.BUY,
+                order_type=OrderType.MOC,
+            )
+
+        mock_client.submit_order.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("ml4t.live.brokers.alpaca.TradingClient")
+    async def test_submit_moc_order_rejects_fractional_quantity(self, mock_client_class):
+        """Test Alpaca rejects fractional-share MOC quantities."""
+        mock_client = MagicMock()
+
+        broker = AlpacaBroker(api_key="PKTEST", secret_key="SECRET")
+        broker._trading_client = mock_client
+        broker._connected = True
+
+        with pytest.raises(ValueError, match="whole-share"):
+            await broker.submit_order_async(
+                asset="AAPL",
+                quantity=1.5,
+                side=OrderSide.BUY,
+                order_type=OrderType.MOC,
+            )
+
+        mock_client.submit_order.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("ml4t.live.brokers.alpaca.TradingClient")

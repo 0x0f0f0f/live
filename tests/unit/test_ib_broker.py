@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from ml4t.backtest.types import Position
+from ml4t.backtest.types import OrderSide, OrderType, Position
 
 from ml4t.live.brokers.ib import IBBroker
 
@@ -481,6 +481,58 @@ class TestOrderSubmission:
 
     @pytest.mark.asyncio
     @patch("ml4t.live.brokers.ib.IB")
+    async def test_submit_moc_order(self, mock_ib_class):
+        """Test submitting an MOC order maps to the IB MOC primitive."""
+        mock_ib = MagicMock()
+        mock_ib.isConnected = MagicMock(return_value=True)
+
+        mock_trade = MagicMock()
+        mock_trade.order.orderId = 130
+        mock_ib.placeOrder = MagicMock(return_value=mock_trade)
+
+        broker = IBBroker()
+        broker.ib = mock_ib
+        broker._connected = True
+
+        order = await broker.submit_order_async(
+            asset="AAPL",
+            quantity=25,
+            side=OrderSide.SELL,
+            order_type=OrderType.MOC,
+        )
+
+        assert order.order_type == OrderType.MOC
+
+        _, ib_order = mock_ib.placeOrder.call_args.args
+        assert ib_order.orderType == "MOC"
+        assert ib_order.tif == "DAY"
+        assert ib_order.action == "SELL"
+        assert ib_order.totalQuantity == 25
+
+    @pytest.mark.asyncio
+    @patch("ml4t.live.brokers.ib.IB")
+    async def test_submit_moc_order_rejects_outside_rth(self, mock_ib_class):
+        """Test IB rejects outsideRth=True for MOC orders before submission."""
+        mock_ib = MagicMock()
+        mock_ib.isConnected = MagicMock(return_value=True)
+
+        broker = IBBroker()
+        broker.ib = mock_ib
+        broker._connected = True
+
+        with pytest.raises(ValueError, match="outsideRth=True"):
+            await broker.submit_order_async(
+                asset="AAPL",
+                quantity=25,
+                side=OrderSide.SELL,
+                order_type=OrderType.MOC,
+                outsideRth=True,
+            )
+
+        mock_ib.placeOrder.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("ml4t.live.brokers.ib.IB")
     async def test_submit_order_not_connected(self, mock_ib_class):
         """Test submitting order when not connected raises error."""
         from ml4t.backtest.types import OrderSide
@@ -619,6 +671,31 @@ class TestOrderSubmission:
         order2 = broker._pending_orders["ML4T-2"]
         assert order2.asset == "GOOGL"
         assert order2.quantity == 50
+
+    @pytest.mark.asyncio
+    @patch("ml4t.live.brokers.ib.IB")
+    async def test_sync_orders_detects_moc(self, mock_ib_class):
+        """Test _sync_orders preserves MOC orders from IB."""
+        mock_ib = MagicMock()
+
+        mock_trade = MagicMock()
+        mock_trade.order.action = "SELL"
+        mock_trade.order.totalQuantity = 40
+        mock_trade.order.orderId = 202
+        mock_trade.order.orderType = "MOC"
+        mock_trade.orderStatus.status = "Submitted"
+        mock_trade.contract.symbol = "AAPL"
+
+        mock_ib.openTrades = MagicMock(return_value=[mock_trade])
+
+        broker = IBBroker()
+        broker.ib = mock_ib
+
+        await broker._sync_orders()
+
+        order = broker._pending_orders["ML4T-1"]
+        assert order.order_type == OrderType.MOC
+        assert order.side == OrderSide.SELL
 
     @pytest.mark.asyncio
     @patch("ml4t.live.brokers.ib.IB")

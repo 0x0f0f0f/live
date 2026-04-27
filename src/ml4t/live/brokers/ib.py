@@ -17,8 +17,21 @@ import time
 from datetime import datetime
 from typing import Any
 
-from ib_async import IB, Contract, LimitOrder, MarketOrder, Stock, StopLimitOrder, StopOrder
-from ib_async import Trade as IBTrade
+from ib_async import (
+    IB,
+    Contract,
+    LimitOrder,
+    MarketOrder,
+    Stock,
+    StopLimitOrder,
+    StopOrder,
+)
+from ib_async import (
+    Order as IBOrder,
+)
+from ib_async import (
+    Trade as IBTrade,
+)
 from ml4t.backtest.types import Order, OrderSide, OrderStatus, OrderType, Position
 
 from ml4t.live.protocols import AsyncBrokerProtocol
@@ -292,6 +305,8 @@ class IBBroker(AsyncBrokerProtocol):
 
         # Create IB order
         action = "BUY" if side == OrderSide.BUY else "SELL"
+        if order_type == OrderType.MOC and kwargs.get("outsideRth"):
+            raise ValueError("IB MOC orders do not support outsideRth=True")
         ib_order = self._create_ib_order(action, quantity, order_type, limit_price, stop_price)
 
         # Submit atomically with lock
@@ -465,6 +480,8 @@ class IBBroker(AsyncBrokerProtocol):
             if limit_price is None or stop_price is None:
                 raise ValueError("limit_price and stop_price required for STOP_LIMIT orders")
             return StopLimitOrder(action, quantity, limit_price, stop_price)
+        elif order_type == OrderType.MOC:
+            return IBOrder(action=action, totalQuantity=quantity, orderType="MOC", tif="DAY")
         raise ValueError(f"Unsupported order type: {order_type}")
 
     def _on_order_status(self, trade: IBTrade) -> None:
@@ -573,7 +590,10 @@ class IBBroker(AsyncBrokerProtocol):
 
                 # Determine order type from IB order
                 order_type = OrderType.MARKET
-                if hasattr(trade.order, "lmtPrice") and trade.order.lmtPrice:
+                ib_order_type = str(getattr(trade.order, "orderType", "")).upper()
+                if ib_order_type == "MOC":
+                    order_type = OrderType.MOC
+                elif hasattr(trade.order, "lmtPrice") and trade.order.lmtPrice:
                     if hasattr(trade.order, "auxPrice") and trade.order.auxPrice:
                         order_type = OrderType.STOP_LIMIT
                     else:

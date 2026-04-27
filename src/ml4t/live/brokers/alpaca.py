@@ -292,7 +292,14 @@ class AlpacaBroker(AsyncBrokerProtocol):
         # Auto-detect side from quantity sign if not provided
         if side is None:
             side = OrderSide.BUY if quantity > 0 else OrderSide.SELL
-        qty = abs(quantity)
+        qty = float(abs(quantity))
+        if order_type == OrderType.MOC:
+            if kwargs.get("extended_hours"):
+                raise ValueError("Alpaca MOC orders do not support extended_hours=True")
+            if "/" in asset:
+                raise NotImplementedError("Alpaca MOC orders are only supported for US equities")
+            if not qty.is_integer():
+                raise ValueError("Alpaca MOC orders require whole-share quantities")
 
         # Create order request
         order_request = self._create_order_request(
@@ -440,7 +447,14 @@ class AlpacaBroker(AsyncBrokerProtocol):
         # Crypto supports GTC, stocks use DAY
         tif = TimeInForce.GTC if is_crypto else TimeInForce.DAY
 
-        if order_type == OrderType.MARKET:
+        if order_type == OrderType.MOC:
+            return MarketOrderRequest(
+                symbol=asset,
+                qty=quantity,
+                side=alpaca_side,
+                time_in_force=TimeInForce.CLS,
+            )
+        elif order_type == OrderType.MARKET:
             return MarketOrderRequest(
                 symbol=asset,
                 qty=quantity,

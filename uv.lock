@@ -1086,7 +1086,7 @@ wheels = [
 
 [[package]]
 name = "ml4t-backtest"
-version = "0.1.0b14"
+version = "0.1.0b15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ml4t-specs" },
@@ -1097,9 +1097,9 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/21/45cbf510399834342d17d586a8bb5182f455a9595ed042d5ab614f9d000b/ml4t_backtest-0.1.0b14.tar.gz", hash = "sha256:0374958f3bc65c687a547843e81c3338b322116f499b2e807f4db99a2ab36dcb", size = 305417, upload-time = "2026-04-15T08:42:45.65Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/74/dd67e38d63d485cc66ff4e2acb6b8e434914b7d564556399b9896c6c3c4f/ml4t_backtest-0.1.0b15.tar.gz", hash = "sha256:8da0f79cc6274cf9f40becfe9740726d622787ae13352086596ab7a5be15942e", size = 306444, upload-time = "2026-04-27T19:34:05.058Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/7b/1fa7888a5000d29add01094ad5b4a7c8d5314bc1d325b343860ed37dc2e7/ml4t_backtest-0.1.0b14-py3-none-any.whl", hash = "sha256:01b5bcf31503d30df76df0eb6f7d1722de2466a025b4112c0cece336dc51f819", size = 173850, upload-time = "2026-04-15T08:42:44.147Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/f2/60c64d409280e9b90f9483acd2683b824cd51d49f2ff31479d495a3d9372/ml4t_backtest-0.1.0b15-py3-none-any.whl", hash = "sha256:792409b18ae36efab1e2bd5154ff386bd67ec326af97d35e3d8f0eab9f4c4c5b", size = 174292, upload-time = "2026-04-27T19:34:02.956Z" },
 ]
 
 [[package]]
@@ -1150,7 +1150,7 @@ requires-dist = [
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6,<2" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5.0" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.24.0" },
-    { name = "ml4t-backtest" },
+    { name = "ml4t-backtest", specifier = ">=0.1.0b15" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },

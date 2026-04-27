@@ -818,6 +818,34 @@ async def test_submit_order_live_mode(mock_broker, config):
     assert order == expected_order
 
 
+async def test_submit_order_live_mode_passes_moc_through(mock_broker, config):
+    """Test SafeBroker passes MOC orders through unchanged."""
+    config.shadow_mode = False
+    safe = SafeBroker(mock_broker, config)
+
+    expected_order = Order(
+        asset="AAPL",
+        side=OrderSide.SELL,
+        quantity=10,
+        order_type=OrderType.MOC,
+        order_id="1",
+        status=OrderStatus.PENDING,
+    )
+    mock_broker.submit_order_async = AsyncMock(return_value=expected_order)
+
+    safe._record_market_data(datetime.now(UTC), {"AAPL": {"close": 150.0}}, {})
+
+    order = await safe.submit_order_async(
+        asset="AAPL",
+        quantity=10,
+        side=OrderSide.SELL,
+        order_type=OrderType.MOC,
+    )
+
+    assert order == expected_order
+    assert mock_broker.submit_order_async.call_args.args[3] == OrderType.MOC
+
+
 async def test_submit_order_increments_state(mock_broker, config):
     """Test submit_order_async increments order counter."""
     config.shadow_mode = True
