@@ -944,17 +944,32 @@ class SafeBroker:
         price: float,
         timestamp: datetime | None = None,
     ) -> None:
-        """Cache a single price observation so headless submission flows pass
-        the staleness guard.
+        """Cache a single price observation for the staleness guard.
 
-        The normal path is for ticks to flow into ``_record_market_data`` via
-        a ``Feed``/``LiveEngine``. When a workflow submits orders directly
-        without a tick stream — basket rebalance, one-shot CLI flatten — call
-        this once per asset before submission to pre-populate the cache.
+        **The supported way to keep the cache fresh is the streaming path:**
+        a ``Feed`` (e.g. ``IBDataFeed``) emits ticks, ``LiveEngine`` shuttles
+        them into ``_record_market_data`` on every bar, and the cache stays
+        current automatically. Use that for any continuous-loop deployment.
+
+        This method is the **non-streaming escape hatch** for one-shot flows
+        that legitimately have no tick stream in front of the broker:
+
+        - A CLI flatten tool that takes a position list and submits MOC/MARKET
+          closeouts.
+        - A REST-only broker adapter that fetches quotes synchronously per
+          request rather than via a streaming feed.
+        - A test harness setting up controlled state.
+
+        It is **not** the right tool inside a notebook that already runs a
+        live engine — there the streaming path covers staleness implicitly.
+        Reaching for ``record_market_snapshot`` from inside a tick-driven
+        flow is a code smell: it usually means the engine isn't actually
+        wired up, and the snapshot will go stale silently.
 
         Args:
             asset: Symbol to record.
-            price: Reference price (e.g. last close, mid quote).
+            price: Reference price (e.g. last close, mid quote, snapshot
+                top-of-book mid). Must be > 0.
             timestamp: Bar/quote timestamp. Defaults to now (UTC). The
                 ``observed_at`` field is always set to now so freshness
                 checks measure wall-clock age since this call, not since the
