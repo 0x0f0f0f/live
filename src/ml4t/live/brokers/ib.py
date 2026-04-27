@@ -54,6 +54,7 @@ class IBBroker(AsyncBrokerProtocol):
         port: int = 7497,  # Paper trading default
         client_id: int = 1,
         account: str | None = None,
+        market_data_type: int | None = None,
     ):
         """Initialize IBBroker.
 
@@ -62,11 +63,18 @@ class IBBroker(AsyncBrokerProtocol):
             port: IB Gateway/TWS port (default: 7497 for paper)
             client_id: Unique client ID (default: 1)
             account: IB account ID (default: use first account)
+            market_data_type: IB market-data type to request after connect.
+                ``None`` (default) leaves TWS at its configured default —
+                use this when the account has live Level 1 subscriptions.
+                ``1`` = real-time, ``2`` = frozen, ``3`` = delayed,
+                ``4`` = delayed-frozen. Paper accounts without market-data
+                subscriptions typically need ``3`` to avoid order rejections.
         """
         self._host = host
         self._port = port
         self._client_id = client_id
         self._account = account
+        self._market_data_type = market_data_type
 
         self.ib = IB()
         self.ib.RequestTimeout = 60
@@ -132,6 +140,15 @@ class IBBroker(AsyncBrokerProtocol):
         # Subscribe to events
         self.ib.orderStatusEvent += self._on_order_status
         self.ib.positionEvent += self._on_position
+
+        # Optional market-data type override (e.g. delayed quotes for paper
+        # accounts without live subscriptions).
+        if self._market_data_type is not None:
+            self.ib.reqMarketDataType(self._market_data_type)
+            logger.info(
+                "IBBroker: market_data_type=%d (1=realtime, 2=frozen, 3=delayed, 4=delayed-frozen)",
+                self._market_data_type,
+            )
 
         # Initial sync
         await self._sync_positions()

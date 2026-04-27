@@ -938,6 +938,44 @@ class SafeBroker:
         """Return the latest cached market snapshot for an asset."""
         return self._latest_market_data.get(asset.upper())
 
+    def record_market_snapshot(
+        self,
+        asset: str,
+        price: float,
+        timestamp: datetime | None = None,
+    ) -> None:
+        """Cache a single price observation so headless submission flows pass
+        the staleness guard.
+
+        The normal path is for ticks to flow into ``_record_market_data`` via
+        a ``Feed``/``LiveEngine``. When a workflow submits orders directly
+        without a tick stream — basket rebalance, one-shot CLI flatten — call
+        this once per asset before submission to pre-populate the cache.
+
+        Args:
+            asset: Symbol to record.
+            price: Reference price (e.g. last close, mid quote).
+            timestamp: Bar/quote timestamp. Defaults to now (UTC). The
+                ``observed_at`` field is always set to now so freshness
+                checks measure wall-clock age since this call, not since the
+                quote was generated.
+        """
+        if not (price > 0):
+            raise ValueError(f"record_market_snapshot: price must be > 0, got {price}")
+        observed_at = datetime.now(UTC)
+        ts = timestamp if timestamp is not None else observed_at
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        else:
+            ts = ts.astimezone(UTC)
+        asset_key = asset.upper()
+        self._latest_market_data[asset_key] = MarketSnapshot(
+            timestamp=ts,
+            observed_at=observed_at,
+            price=float(price),
+        )
+        self._virtual_portfolio.update_prices({asset_key: float(price)})
+
     def _check_data_staleness(self, asset: str) -> None:
         """Reject orders when the latest known market data is missing or stale."""
         snapshot = self._get_market_snapshot(asset)
