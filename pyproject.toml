@@ -14,6 +14,13 @@ dependencies = [
 [project.scripts]
 ml4t-live = "ml4t.live.cli.main:app"
 
+[project.urls]
+Homepage = "https://www.ml4trading.io/docs/live/"
+Documentation = "https://www.ml4trading.io/docs/live/"
+Repository = "https://github.com/ml4t/live"
+Issues = "https://github.com/ml4t/live/issues"
+Changelog = "https://github.com/ml4t/live/releases"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

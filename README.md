@@ -8,7 +8,7 @@ Live trading platform with zero-code migration from backtest to production.
 
 ## Part of the ML4T Library Ecosystem
 
-This library is one of six interconnected libraries supporting the machine learning for trading workflow described in [Machine Learning for Trading](https://ml4trading.io):
+This library is one of six interconnected libraries supporting the machine learning for trading workflow described in [Machine Learning for Trading](https://www.ml4trading.io/):
 
 ![ML4T Library Ecosystem](docs/images/ml4t_ecosystem_workflow_color.png)
 
@@ -302,7 +302,7 @@ await LiveEngine(MyStrategy(), safe_broker, live_feed).run()
 ## Development
 
 ```bash
-git clone https://github.com/ml4t/ml4t-live.git
+git clone https://github.com/ml4t/live.git
 cd ml4t-live
 uv sync
 uv run pytest tests/ -q
