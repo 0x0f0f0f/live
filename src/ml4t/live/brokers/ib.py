@@ -305,9 +305,12 @@ class IBBroker(AsyncBrokerProtocol):
 
         # Create IB order
         action = "BUY" if side == OrderSide.BUY else "SELL"
-        if order_type == OrderType.MOC and kwargs.get("outsideRth"):
+        outside_rth = bool(kwargs.get("outsideRth", False))
+        if order_type == OrderType.MOC and outside_rth:
             raise ValueError("IB MOC orders do not support outsideRth=True")
-        ib_order = self._create_ib_order(action, quantity, order_type, limit_price, stop_price)
+        ib_order = self._create_ib_order(
+            action, quantity, order_type, limit_price, stop_price, outside_rth
+        )
 
         # Submit atomically with lock
         async with self._order_lock:
@@ -315,7 +318,11 @@ class IBBroker(AsyncBrokerProtocol):
             order_id = f"ML4T-{self._order_counter}"
 
             # Place order with IB
-            trade = self.ib.placeOrder(contract, ib_order)
+            try:
+                trade = self.ib.placeOrder(contract, ib_order)
+            except Exception as e:
+                # Surface a clear error; nothing has been tracked yet, so state stays consistent.
+                raise RuntimeError(f"IBBroker: failed to place order for {asset}: {e}") from e
 
             # Create our order
             order = Order(
@@ -450,6 +457,7 @@ class IBBroker(AsyncBrokerProtocol):
         order_type: OrderType,
         limit_price: float | None,
         stop_price: float | None,
+        outside_rth: bool = False,
     ) -> Any:
         """Create IB order object.
 
@@ -459,6 +467,7 @@ class IBBroker(AsyncBrokerProtocol):
             order_type: Market, limit, stop, or stop-limit
             limit_price: Limit price for limit orders
             stop_price: Stop price for stop orders
+            outside_rth: Allow the order to fill outside regular trading hours
 
         Returns:
             IB order object (MarketOrder, LimitOrder, etc.)
@@ -467,22 +476,28 @@ class IBBroker(AsyncBrokerProtocol):
             ValueError: If order type is unsupported
         """
         if order_type == OrderType.MARKET:
-            return MarketOrder(action, quantity)
+            order = MarketOrder(action, quantity)
         elif order_type == OrderType.LIMIT:
             if limit_price is None:
                 raise ValueError("limit_price required for LIMIT orders")
-            return LimitOrder(action, quantity, limit_price)
+            order = LimitOrder(action, quantity, limit_price)
         elif order_type == OrderType.STOP:
             if stop_price is None:
                 raise ValueError("stop_price required for STOP orders")
-            return StopOrder(action, quantity, stop_price)
+            order = StopOrder(action, quantity, stop_price)
         elif order_type == OrderType.STOP_LIMIT:
             if limit_price is None or stop_price is None:
                 raise ValueError("limit_price and stop_price required for STOP_LIMIT orders")
-            return StopLimitOrder(action, quantity, limit_price, stop_price)
+            order = StopLimitOrder(action, quantity, limit_price, stop_price)
         elif order_type == OrderType.MOC:
+            # Market-on-close is session-bound; outside_rth is rejected upstream.
             return IBOrder(action=action, totalQuantity=quantity, orderType="MOC", tif="DAY")
-        raise ValueError(f"Unsupported order type: {order_type}")
+        else:
+            raise ValueError(f"Unsupported order type: {order_type}")
+
+        # Honor the caller's extended-hours intent (no-op before this was set).
+        order.outsideRth = outside_rth
+        return order
 
     def _on_order_status(self, trade: IBTrade) -> None:
         """Handle IB order status update.
@@ -560,6 +575,10 @@ class IBBroker(AsyncBrokerProtocol):
         # Note: This runs in the IB event loop. We update directly since
         # _positions is only read via copy in the positions property.
         if position.position != 0:
+            # IB position events carry only average cost, not a live mark (unlike
+            # Alpaca). avgCost seeds current_price as the initial reference for the
+            # risk layer's price-deviation check; the live data feed overwrites it
+            # with the real mark on the first tick.
             self._positions[asset] = Position(
                 asset=asset,
                 quantity=float(position.position),
