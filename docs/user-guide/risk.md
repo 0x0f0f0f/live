@@ -2,6 +2,12 @@
 
 `SafeBroker` is the pre-trade control layer around a live broker. It validates each order before submission, persists risk state across restarts, and keeps the kill switch sticky until you clear it.
 
+## Why Risk Controls Live Outside The Strategy
+
+Backtests often treat risk policy as part of simulation assumptions. Live deployment needs those
+controls to be explicit, restart-safe, and broker-adjacent. `SafeBroker` is the layer that enforces
+that policy consistently regardless of strategy code.
+
 ## What Is Enforced Today
 
 At order submission time, `SafeBroker` currently enforces:
@@ -177,3 +183,5 @@ except RiskLimitError as exc:
 3. Move to paper credentials with conservative limits.
 4. Check `ml4t-live status` and startup reconciliation before going live.
 5. Increase size only after repeated clean starts and expected fills.
+
+For the broader chapter map, use the [Book Guide](../book-guide/index.md).

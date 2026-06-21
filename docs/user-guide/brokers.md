@@ -5,6 +5,13 @@
 - `IBBroker` for Interactive Brokers
 - `AlpacaBroker` for Alpaca stocks and crypto
 
+## Choosing A Broker
+
+| Broker | Best for | Notes |
+| --- | --- | --- |
+| `IBBroker` | global multi-asset workflows, professional routing, established IBKR accounts | requires TWS or IB Gateway and operational familiarity |
+| `AlpacaBroker` | fast setup for US equities, ETFs, and Alpaca-supported crypto | strong paper-trading path and simpler API surface |
+
 ## Broker Model
 
 The raw broker implementations are asynchronous and satisfy `AsyncBrokerProtocol`. In normal usage they sit behind `SafeBroker`, and strategies interact with a synchronous broker wrapper created by `LiveEngine`.
@@ -108,3 +115,6 @@ try:
 except RiskLimitError as exc:
     print(f"blocked by risk controls: {exc}")
 ```
+
+For the surrounding migration story, read [Backtest to Live](backtest-to-live.md) and the
+[Book Guide](../book-guide/index.md).

@@ -59,6 +59,15 @@ asyncio.run(main())
 - `ThreadSafeBrokerWrapper` lets strategy code call `broker.submit_order(...)` safely
 - `SafeBroker` enforces limits before any live order can be placed
 
+## First-Run Checklist
+
+Before you move past this example, confirm that:
+
+1. the strategy receives bars from the feed you expect
+2. orders appear in shadow mode instead of hitting the broker
+3. positions and cash update through the virtual portfolio
+4. you can stop and restart the engine cleanly
+
 ## Deployment Progression
 
 1. Shadow mode: `shadow_mode=True`
@@ -89,9 +98,11 @@ feed = BarAggregator(raw_feed, bar_size_minutes=1, flush_timeout_seconds=2.0)
 ## Next Steps
 
 - [Installation](installation.md)
+- [Backtest to Live](../user-guide/backtest-to-live.md)
 - [Risk Controls](../user-guide/risk.md)
 - [CLI](../user-guide/cli.md)
 - [Examples](../user-guide/examples.md)
 - [Operator Guide](../user-guide/operator-guide.md)
 - [Brokers](../user-guide/brokers.md)
 - [Data Feeds](../user-guide/feeds.md)
+- [Book Guide](../book-guide/index.md)

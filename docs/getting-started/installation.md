@@ -78,3 +78,12 @@ from ml4t.live import (
 
 print("ml4t-live imports succeeded")
 ```
+
+## What To Do Next
+
+After installation, the recommended first run is:
+
+1. Follow the [Quickstart](quickstart.md) in `shadow_mode=True`.
+2. Read [Backtest to Live](../user-guide/backtest-to-live.md) if you are porting an existing strategy.
+3. Configure the [broker](../user-guide/brokers.md) and [feed](../user-guide/feeds.md) pages that match your deployment path.
+4. Use the [Book Guide](../book-guide/index.md) to map chapter examples back to the library APIs.

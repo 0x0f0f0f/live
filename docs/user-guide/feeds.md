@@ -3,6 +3,17 @@
 `ml4t-live` exposes five primary feed classes plus `BarAggregator` for resampling tick-style feeds.
 Each feed yields `(timestamp, data, context)` tuples through `DataFeedProtocol`.
 
+## Choosing A Feed
+
+| Feed | Best for | Typical pairing |
+| --- | --- | --- |
+| `AlpacaDataFeed` | Alpaca-native equities and crypto | `AlpacaBroker` |
+| `IBDataFeed` | direct market data from TWS or IB Gateway | `IBBroker` |
+| `DataBentoFeed` | replay, institutional futures data, parity testing | replay workflows, validation |
+| `CryptoFeed` | exchange-agnostic crypto streaming through CCXT | custom crypto execution stacks |
+| `OKXFundingFeed` | perpetual-swap strategies that depend on funding context | funding-rate and perp strategies |
+| `BarAggregator` | converting tick or sub-minute feeds into strategy bars | `IBDataFeed`, custom feeds |
+
 ## AlpacaDataFeed
 
 ```python
@@ -113,6 +124,9 @@ Optional symbol filtering:
 ```python
 feed = BarAggregator(raw_feed, bar_size_minutes=5, assets=["SPY", "QQQ"])
 ```
+
+If you need lower-level aggregation state, `BarBuffer` is also part of the public surface and appears
+in the [API Reference](../api/index.md).
 
 ## Using a Feed With LiveEngine
 
